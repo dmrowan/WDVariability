@@ -1,0 +1,25 @@
+#!/bin/bash
+
+#Call from directory containg csvs
+#Feed this in at the end of WDranker to make the PDF
+
+while getopts ":s:" opt; do
+	case $opt in 
+	  s) source="$OPTARG"
+	  ;;
+  	  \?) echo "Invalid option -$OPTARG" >&2
+  	  ;;
+	esac
+done
+
+[ -f PDFs/${source}_combined.pdf ]  && rm -f PDFs/${source}_combined.pdf
+
+cp PNGs/${source}*.png PDFs/
+
+for i in PDFs/${source}*.png; do convert $i $i.pdf; done
+
+rm -f PDFs/${source}*.png
+
+pdfunite $(ls -v PDFs/${source}*.pdf) PDFs/${source}_combined.pdf
+
+rm -f PDFs/${source}*.png.pdf
