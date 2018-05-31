@@ -1,0 +1,218 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+import os, sys
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+from astropy import log
+from os import path
+from glob import glob
+from subprocess import check_call
+import shutil
+from astropy.table import Table
+import sys
+from datetime import datetime
+from dateutil import parser as pr
+import pylab
+import itertools
+from datetime import timedelta
+from matplotlib.backends.backend_pdf import PdfPages
+import astropy
+from radec_conversion import *
+import pandas as pd
+from astropy.stats import LombScargle
+import heapq
+import matplotlib.image as mpimg
+from scipy.optimize import curve_fit
+import time
+import subprocess
+import astroquery
+from astroquery.simbad import Simbad
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+#Dom Rowan REU 2018
+
+desc = """
+This will make a csv containing info from Simbad on sources in current directory. Output filename: AllCatalog_Simbad.csv
+"""
+parser = argparse.ArgumentParser(description=desc)
+parser.add_argument("--sep", help="Seperation threshold for crosschecking, arcseconds", type=float, default=5)
+args= parser.parse_args()
+
+#Lists to build
+gaia_designation = []
+gaia_ra = []
+gaia_dec = []
+gaia_parallax = []
+gaia_parallax_error = []
+gaia_g_mean_flux = []
+gaia_g_mean_flux_error = []
+gaia_g_mean_mag = []
+gaia_bp_mean_flux = []
+gaia_bp_mean_flux_error = []
+gaia_bp_mean_mag = []
+gaia_rp_mean_flux = []
+gaia_rp_mean_flux_error = []
+gaia_rp_mean_mag = []
+
+sdss_designation = []
+sdss_u = []
+sdss_su = []
+sdss_g = []
+sdss_sg = []
+sdss_r = []
+sdss_sr = []
+sdss_i = []
+sdss_si = []
+sdss_z = []
+sdss_sz = []
+sdss_dtype = []
+
+simbad_name = []
+
+SDSSpath = "/home/dmrowan/WhiteDwarfs/Catalogs/SDSSCatalog.csv"
+df_SDSS = pd.read_csv("SDSSCatalog.csv")
+df_SDSS['ra'] = df_SDSS['SDSS-J'].str[0:2]+":"+ df_SDSS['SDSS-J'].str[2:4]+":"+ df_SDSS['SDSS-J'].str[4:9]
+df_SDSS['dec'] = df_SDSS['SDSS-J'].str[9:12] + ":" + df_SDSS['SDSS-J'].str[12:14] + ":" + df_SDSS['SDSS-J'].str[14:]
+
+df_GAIA = pd.read_csv("GaiaWDcatalog.csv")
+gaia_catalog = SkyCoord(ra=list(df_GAIA['ra'])*u.degree, dec=list(df_GAIA['dec'])*u.degree)
+for i in range(len(df_SDSS['ra'])):
+    stringcoord = df_SDSS['ra'][i] + " " + df_SDSS['dec'][i]
+    c = SkyCoord(stringcoord, unit=(u.hour, u.deg))
+    idx, d2d, d3d = c.match_to_catalog_sky(gaia_catalog)
+    if d2d < args.sep*u.arcsec:
+        print("SDSS source " + stringcoord + " found in GAIA catalog")
+        #Grab information from GAIA catalog at index idx
+        idx = int(idx)
+        gaia_designation.append(df_GAIA['designation'][idx])
+        gaia_ra.append(df_GAIA['ra'][idx])
+        gaia_dec.append(df_GAIA['dec'][idx])
+        gaia_parallax.append(df_GAIA['parallax'][idx] * 10e3)
+        gaia_parallax_error.append(df_GAIA['parallax_error'][idx] * 10e3)
+        gaia_g_mean_flux.append(df_GAIA['phot_g_mean_flux'][idx])
+        gaia_g_mean_flux_error.append(df_GAIA['phot_g_mean_flux_error'][idx])
+        gaia_g_mean_mag.append(df_GAIA['phot_g_mean_mag'][idx])
+        gaia_bp_mean_flux.append(df_GAIA['phot_bp_mean_flux'][idx])
+        gaia_bp_mean_flux_error.append(df_GAIA['phot_bp_mean_flux_error'][idx])
+        gaia_bp_mean_mag.append(df_GAIA['phot_bp_mean_mag'][idx])
+        gaia_rp_mean_flux.append(df_GAIA['phot_rp_mean_flux'][idx])
+        gaia_rp_mean_flux_error.append(df_GAIA['phot_rp_mean_flux_error'][idx])
+        gaia_rp_mean_mag.append(df_GAIA['phot_rp_mean_mag'][idx])
+    else:
+        print("SDSS source " + stringcoord + " not found in GAIA catalog")
+        gaia_designation.append("")
+        gaia_ra.append("")
+        gaia_dec.append("")
+        gaia_parallax.append("")
+        gaia_parallax_error.append("")
+        gaia_g_mean_flux.append("")
+        gaia_g_mean_flux_error.append("")
+        gaia_g_mean_mag.append("")
+        gaia_bp_mean_flux.append("")
+        gaia_bp_mean_flux_error.append("")
+        gaia_bp_mean_mag.append("")
+        gaia_rp_mean_flux.append("")
+        gaia_rp_mean_flux_error.append("")
+        gaia_rp_mean_mag.append("")
+        
+    #SDSS information
+    sdss_designation.append(df_SDSS['SDSS-J'][i])
+    sdss_u.append(df_SDSS['u'][i])
+    sdss_su.append(df_SDSS['su'][i])
+    sdss_g.append(df_SDSS['g'][i])
+    sdss_sg.append(df_SDSS['sg'][i])
+    sdss_r.append(df_SDSS['r'][i])
+    sdss_sr.append(df_SDSS['sr'][i])
+    sdss_i.append(df_SDSS['i'][i])
+    sdss_si.append(df_SDSS['si'][i])
+    sdss_z.append(df_SDSS['z'][i])
+    sdss_sz.append(df_SDSS['sz'][i])
+    sdss_dtype.append(df_SDSS['dtype'][i])
+
+    #Grab SIMBAD info
+    simbadcoord = SkyCoord(stringcoord, unit=(u.hour, u.deg))
+    q_result = Simbad.query_region(simbadcoord, 2*u.arcsec)
+    if q_result is not None:
+        simbad_name.append(str(q_result['MAIN_ID'][0]))
+    else:
+        simbad_name.append("")
+
+#Now loop through sources in the gaia catalog
+for i in range(len(df_GAIA['designation'])):
+    #Check if they already exist (i.e. also in sdss)
+    if not df_GAIA['designation'][i] in gaia_designation:
+        print(str(df_GAIA['designation'][i])) + " only in GAIA"
+        gaia_designation.append(df_GAIA['designation'][i])
+        gaia_ra.append(df_GAIA['ra'][i])
+        gaia_dec.append(df_GAIA['dec'][i])
+        gaia_parallax.append(df_GAIA['parallax'][i] * 10e3)
+        gaia_parallax_error.append(df_GAIA['parallax_error'][i] * 10e3)
+        gaia_g_mean_flux.append(df_GAIA['phot_g_mean_flux'][i])
+        gaia_g_mean_flux_error.append(df_GAIA['phot_g_mean_flux_error'][i])
+        gaia_g_mean_mag.append(df_GAIA['phot_g_mean_mag'][i])
+        gaia_bp_mean_flux.append(df_GAIA['phot_bp_mean_flux'][i])
+        gaia_bp_mean_flux_error.append(df_GAIA['phot_bp_mean_flux_error'][i])
+        gaia_bp_mean_mag.append(df_GAIA['phot_bp_mean_mag'][i])
+        gaia_rp_mean_flux.append(df_GAIA['phot_rp_mean_flux'][i])
+        gaia_rp_mean_flux_error.append(df_GAIA['phot_rp_mean_flux_error'][i])
+        gaia_rp_mean_mag.append(df_GAIA['photo_rp_mean_mag'][i])
+
+        sdss_designation.append("")
+        sdss_u.append("")
+        sdss_su.append("")
+        sdss_g.append("")
+        sdss_sg.append("")
+        sdss_r.append("")
+        sdss_sr.append("")
+        sdss_i.append("")
+        sdss_si.append("")
+        sdss_z.append("")
+        sdss_sz.append("")
+        sdss_dtype.append("")
+
+        #Grab SIMBAD info
+        simbadcoord = SkyCoord(df_GAIA['ra'][i], df_GAIA['dec'][i], unit='deg')
+        q_result = Simbad.query_region(simbadcoord, 2*u.arcsec)
+        if q_result is not None:
+            simbad_name.append(str(q_result['MAIN_ID'][0]))
+        else:
+            simbad_name.append("")
+
+#Create output dictionary
+output_dic = {
+        "GaiaDesignation":gaia_designation,
+        "SDSSDesignation":sdss_designation,
+        "gaia_ra":gaia_ra,
+        "gaia_dec":gaia_dec,
+        "gaia_parallax":gaia_parallax,
+        "gaia_parallax_error":gaia_parallax_error,
+        "gaia_g_mean_flux":gaia_g_mean_flux,
+        "gaia_g_mean_flux_error":gaia_g_mean_flux_error,
+        "gaia_g_mean_mag":gaia_g_mean_mag,
+        "gaia_bp_mean_flux":gaia_bp_mean_flux,
+        "gaia_bp_mean_flux_error":gaia_bp_mean_flux_error,
+        "gaia_bp_mean_mag":gaia_bp_mean_mag,
+        "gaia_rp_mean_flux":gaia_rp_mean_flux,
+        "gaia_rp_mean_flux_error":gaia_rp_mean_flux_error,
+        "gaia_rp_mean_mag":gaia_rp_mean_mag,
+
+        "sdss_u":sdss_u,
+        "sdss_su":sdss_su,
+        "sdss_g":sdss_g,
+        "sdss_sg":sdss_sg,
+        "sdss_r":sdss_r,
+        "sdss_sr":sdss_sr,
+        "sdss_i":sdss_i,
+        "sdss_si":sdss_si,
+        "sdss_z":sdss_z,
+        "sdss_sz":sdss_sz,
+        "sdss_dtype":sdss_dtype,
+
+        "simbad_name":simbad_name,
+}
+
+
+output_df = pd.DataFrame(output_dic)
+output_df.to_csv("BigCatalog.csv")

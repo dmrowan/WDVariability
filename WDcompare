@@ -32,9 +32,6 @@ parser = argparse.ArgumentParser(description=desc)
 parser.add_argument("--sortmag", help="Sort by magnitude instead of rank", default=False, action='store_true')
 parser.add_argument("--sortcomment", help="Sort by comment instead of rank", default=False, action='store_true')
 parser.add_argument("--sortperiod", help="Sort by shortest period of strongest peak", default=False, action='store_true')
-parser.add_argument("--N", help = "Pull N most interesting sources and output info to terminal", default=10, type=int)
-parser.add_argument("--display", help="Display the N interesting sources (the PDF)", default=False, action='store_true')
-parser.add_argument("--wrong", help="Output list of sources that are considered wrong in the comments", default = 0, type=float)
 
 args= parser.parse_args()
 

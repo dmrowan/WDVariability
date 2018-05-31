@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+import os, sys
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+from astropy import log
+from os import path
+from glob import glob
+from subprocess import check_call
+import shutil
+from astropy.table import Table
+import sys
+from datetime import datetime
+from dateutil import parser as pr
+import pylab
+import itertools
+from datetime import timedelta
+from matplotlib.backends.backend_pdf import PdfPages
+import astropy
+from radec_conversion import *
+import pandas as pd
+from astropy.stats import LombScargle
+import heapq
+import matplotlib.image as mpimg
+from scipy.optimize import curve_fit
+import time
+import subprocess
+import astroquery
+from astroquery.simbad import Simbad
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+#Dom Rowan REU 2018
+
+desc = """
+This will make a csv containing info from Simbad on sources in current directory. Output filename: AllCatalog_Simbad.csv
+"""
+#No args needed?
+parser = argparse.ArgumentParser(description=desc)
+args= parser.parse_args()
+
+SDSSpath = "/home/dmrowan/WhiteDwarf/Catalogs/SDSSCatalog.csv"
+#Buil lists to construct df
+source_list = []
+simbad_existence = []
+simbad_name = []
+#Loop through sources in current directory
+for filename in os.listdir(os.getcwd()):
+    if filename.endswith(".csv") and filename[0].isdigit():
+        sourcename = filename[:-8]
+        stringcoords = sourcename[0:2]+":"+sourcename[2:4]+":"+sourcename[4:9]+" "+sourcename[9:12] + ":" + sourcename[12:14]+":"+sourcename[14:]
+        coord = SkyCoord(stringcoords, unit=(u.hour, u.deg))
+        q_result = Simbad.query_region(coord, 2*u.arcsec)
+
+        source_list.append(sourcename)
+        if q_result is not None:
+            simbad_existence.append("y")
+            simbad_name.append(str(q_result['MAIN_ID'][0]))
+        else:
+            print("none")
+            simbad_existence.append(" ")
+            simbad_name.append(" ")
+
+
+#Make output df
+output_df = pd.DataFrame({"SourceName":source_list, "SimbadExistence":simbad_existence, "SimbadName":simbad_name})
+output_df.to_csv("AllCatalog_Simbad.csv")

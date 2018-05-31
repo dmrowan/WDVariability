@@ -143,15 +143,17 @@ if datadic['NUV'] is not None:
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
 
-        #Find indicies of data above 5 sigma of mean (counts per second column)
+        #Find indicies of data above 5 sigma of mean (counts per second column), flagged points, and pointes with
+        # less than 10 seconds of exposure time
         stdev = np.std(df['cps_bgsub'])
-        redpoints = np.where((df['cps_bgsub'] - np.mean(df['cps_bgsub'])) > 5*stdev)[0]
+        redpoints = np.where( ((df['cps_bgsub'] - np.mean(df['cps_bgsub'])) > 5*stdev) | (df['flags']!=0) | (df['exptime'] < 10) )[0]
         redpoints = redpoints + df.index[0]
-        #print("Points removed with 5 sigma cut: ", redpoints)
+        #print("Removing " +  str(len(redpoints)) + " bad points")
         df_reduced = df.drop(index=redpoints)
         
+
         if df_reduced.shape[0] < 7:
-            print("Not enough points for this exposure group, skipping")
+            print("Not enough points for this exposure group, skipping. Removed " +  str(len(redpoints)) + " bad points")
             df_number +=1
             continue
 
@@ -169,8 +171,16 @@ if datadic['NUV'] is not None:
         cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
         cps_bgsub_err = df_reduced['cps_bgsub_err'] / cps_bgsub_median
         t_mean = df_reduced['t_mean']
-     
 
+        #Make the correction for relative scales for redpoints
+        if len(redpoints) != 0:
+            cps_bgsub_red = df['cps_bgsub'][redpoints]
+            cps_bgsub_median_red = np.median(cps_bgsub_red)
+            cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median_red) - 1.0
+            cps_bgsub_err_red = df['cps_bgsub_err'][redpoints] / cps_bgsub_median_red
+            t_mean_red = df['t_mean'][redpoints]
+
+        ###Periodogram Creation###
         #Fist do the periodogram of the data
         ls = LombScargle(t_mean, cps_bgsub)
         freq, amp = ls.autopower(nyquist_factor=1)
@@ -231,7 +241,7 @@ if datadic['NUV'] is not None:
             strongest_period = 1.0 / strongest_freq
             strongest_periods_list.append((strongest_period[0], strongest_period_ratio))
 
-        #Autocorrelation results
+        ###Autocorrelation results###
         autocorr_result = np.correlate(cps_bgsub, cps_bgsub, mode='full')
         autocorr_result = autocorr_result[int(autocorr_result.size/2):]
             
@@ -259,12 +269,13 @@ if datadic['NUV'] is not None:
             c_autocorr = 1 - r_squared
 
 
-        #Generate rating
+        ###Generate rating###
         C = (args.w_pgram * c_periodogram) + (args.w_expt * c_exposure) + (args.w_ac * c_autocorr) + (args.w_mag * c_mag)
         print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
-        #Generate plot/subplot information
+
+        ###Generate plot/subplot information###
         fig, ax = plt.subplots(2,2,figsize=(16,12))
         fig.suptitle(source+"-NUV \n" + 
                 "AB Magnitude: " + str(round(m_ab, 2)) + ", Exposure: "+str(exposure)+ " seconds \n" +
@@ -280,7 +291,7 @@ if datadic['NUV'] is not None:
         #Change: Divide error column by median cps as well
         ax[0][0].errorbar(t_mean, cps_bgsub, yerr=cps_bgsub_err, color='purple', marker='.', ls='-')
         if len(redpoints) != 0:
-            ax[0][0].errorbar(df['t_mean'][redpoints], df['cps_bgsub'][redpoints], yerr=df['cps_bgsub_err'][redpoints], color='r', marker='.')
+            ax[0][0].errorbar(t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='r', marker='.')
         
         ax[0][0].set_title('NUV light curve')
         ax[0][0].set_xlabel('Mean Time (GALEX)')
@@ -318,8 +329,9 @@ if datadic['NUV'] is not None:
         #Subplot for png image
         pngfile = "/home/dmrowan/WhiteDwarfs/GALEXphot/pngs/"+source+".png"
         img1 = mpimg.imread(pngfile)
-        #Not sure how to get the png in here as [1][1] subplot
         ax[1][1].imshow(img1)
+        #Turn of axes 
+        ax[1][1].axis('off')
 
         saveimagepath = str("PNGs/"+source+"qlp"+str(df_number)+".png")
         fig.savefig(saveimagepath)
@@ -331,6 +343,7 @@ if datadic['NUV'] is not None:
         biglc_counts.append(np.mean(cps_bgsub))
         biglc_err.append(np.std(cps_bgsub_err) / np.sqrt(df_reduced.shape[0]))
 
+#Find the total rank, best rank, and best group
 totalrank = np.sum(c_vals)
 if len(c_vals) !=0:
     bestrank = max(c_vals)
@@ -342,7 +355,7 @@ else:
     best_expt_group=0
 print(source, "Total rank: " + str(totalrank), "Best rank: " + str(bestrank), "Best group: " + str(best_expt_group))
 
-#Commenting/Interactive Mode
+###Commenting/Interactive Mode###
 if args.comment:
     if bestrank >= 0:
         bestimagepath = "PNGs/"+source+"qlp"+str(best_expt_group)+".png"
@@ -351,24 +364,45 @@ if args.comment:
 else:
     comment=""
 
-#Get most prevalent period from strongest_periods_list
+###Get most prevalent period from strongest_periods_list###
 all_periods = [ tup[0] for tup in strongest_periods_list ]
 all_ratios = [ tup[1] for tup in strongest_periods_list ] 
 if len(all_periods) > 1:
     period_to_save = all_periods[np.where(np.asarray(all_ratios) == max(all_ratios))[0][0]]
 elif len(all_periods) == 1:
     period_to_save = all_periods[0]
+    period_to_save = round(period_to_save,3)
 else:
     period_to_save = ''
 
+###Query Catalog###
+#If catalog to query does not exist, make one
+if not os.path.isfile("AllCatalog_Simbad.csv"):
+    print("Creating catalog")
+    subprocess.run(["WDsearch"])
+
+#Read in Simbad catalog
+df_simbad = pd.read_csv("AllCatalog_Simbad.csv")
+idx_simbad = np.where(df_simbad["SourceName"] == csvpath[:-8])[0]
+simbad_name = df_simbad["SimbadName"][idx_simbad]
+#Read in SDSS info
+df_sdss = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/SDSSCatalog.csv")
+idx_sdss = np.where(df_sdss['SDSS-J'] == csvpath[:-8])[0]
+if len(idx_sdss) != 0:
+    idx_sdss = idx_sdss[0]
+    g_mag = df_sdss['g'][idx_sdss]
+    sdss_dtype = df_sdss['dtype'][idx_sdss]
+else:
+    g_mag = ""
+    sdss_dtype = ""
+
 #Generate output csv with pandas
 dfoutput = pd.DataFrame()
-dfoutput = dfoutput.append({"SourceName":source, "TotalRank":totalrank, "BestRank":bestrank, "Comment":comment, "ABMag":round(m_ab, 2), "StrongestPeriod":period_to_save}, ignore_index=True)
+dfoutput = dfoutput.append({"SourceName":source, "TotalRank":round(totalrank,3), "BestRank":round(bestrank,3), "Comment":comment, "ABMag":round(m_ab, 2), "StrongestPeriod":period_to_save, "SimbadName":simbad_name, "gmag":g_mag, "dType":sdss_dtype}, ignore_index=True)
 dfoutput.to_csv("Output/"+source+"-NUV-output.csv")
 
 
-#Generate pdf with multiple pages
-
+###Generate multiplage pdf###
 if datadic['NUV'] is not None:
     #Make the correction for relative scales
     alldata_tmean = alldata_NUV['t_mean']
@@ -380,14 +414,14 @@ if datadic['NUV'] is not None:
     figall.suptitle("Combined Light Curve for " + source + "NUV + \n"+
             "AB magnitude " + str(round(m_ab, 2)) + "\n" +
             "Total rank: " + str(round(totalrank,2)) + " in "+str(len(data_NUV))+ " exposure groups \n"+
-            "Best rank: " + str(round(bestrank,2))+ " in exposure group " + str(best_expt_group) +"\n"+
-            "Comment: " + str(comment)
+            "Best rank: " +str(round(bestrank,2))+ " in exposure group " + str(best_expt_group) +"\n"+
+            "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
             )
     axall.errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=2, ms=15)
     axall.errorbar(alldata_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=1, ls='', alpha=.125)
     allsaveimagepath = str("PNGs/"+source+"all-NUV.png")
     figall.savefig(allsaveimagepath)
-
+#Call the pdfcreator script
 subprocess.call(['PDFcreator', '-s', source])
 
 
