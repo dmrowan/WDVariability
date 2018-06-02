@@ -143,7 +143,7 @@ for i in range(len(df_SDSS['ra'])):
 for i in range(len(df_GAIA['designation'])):
     #Check if they already exist (i.e. also in sdss)
     if not df_GAIA['designation'][i] in gaia_designation:
-        print(str(df_GAIA['designation'][i])) + " only in GAIA"
+        print(str(df_GAIA['designation'][i]) + " only in GAIA")
         gaia_designation.append(df_GAIA['designation'][i])
         gaia_ra.append(df_GAIA['ra'][i])
         gaia_dec.append(df_GAIA['dec'][i])
@@ -157,7 +157,7 @@ for i in range(len(df_GAIA['designation'])):
         gaia_bp_mean_mag.append(df_GAIA['phot_bp_mean_mag'][i])
         gaia_rp_mean_flux.append(df_GAIA['phot_rp_mean_flux'][i])
         gaia_rp_mean_flux_error.append(df_GAIA['phot_rp_mean_flux_error'][i])
-        gaia_rp_mean_mag.append(df_GAIA['photo_rp_mean_mag'][i])
+        gaia_rp_mean_mag.append(df_GAIA['phot_rp_mean_mag'][i])
 
         sdss_designation.append("")
         sdss_u.append("")
@@ -213,6 +213,23 @@ output_dic = {
         "simbad_name":simbad_name,
 }
 
-
+#Construct df
 output_df = pd.DataFrame(output_dic)
+
+#Drop rows with type other than WD
+non_wd_idx = np.where(output_df['sdss_dtype'].str[0] != 'D')[0]
+output_df = output_df.drop(index=non_wd_idx)
+output_df = output_df.reset_index(drop=True)
+
+#Drop rows where we dont have GALEX data (for SDSS sources only)
+#first grab rows where we only have SDSS data
+sdss_only = np.where( (output_df['GaiaDesignation'].isnull()) & (output_df['SDSSDesignation'].notnull()) )[0]
+rows_to_drop = []
+for idx in sdss_only:
+    if not os.path.isfile('/home/dmrowan/WhiteDwarfs/GALEXphot/fits/'+str(output_df['SDSSDesignation'][idx])+'.fits'):
+        rows_to_drop.append(idx)
+
+output_df = output_df.drop(index=rows_to_drop)
+
+#Save to CSV
 output_df.to_csv("BigCatalog.csv")

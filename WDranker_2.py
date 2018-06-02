@@ -2,7 +2,6 @@
 from __future__ import print_function, division
 import os, sys
 import matplotlib.pyplot as plt
-plt.rcParams.update({'figure.max_open_warning': 0})
 import numpy as np
 import argparse
 from astropy import log
@@ -14,10 +13,12 @@ from astropy.stats import LombScargle
 import heapq
 import matplotlib.image as mpimg
 import subprocess
+import warnings
 #Dom Rowan REU 2018
 
+warnings.simplefilter("once")
 
-def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment):
+def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     #Path assertions
     assert(os.path.isfile(csvname))
     catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/BigCatalog.csv"
@@ -46,16 +47,14 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment):
     print(source, band)
 
     alldata = pd.read_csv(csvpath)
-
-    ###Apparent Magnitude### - could also be done using conversion from flux 
-    m_ab = np.mean(alldata['mag_bgsub'])
-
+    
     #Get information on flags
     n_rows = alldata.shape[0]
     n_flagged = len( np.where(alldata['flags'] != 0)[0])
     flaggedratio = float(n_flagged) / float(n_rows)
 
-
+    ###Apparent Magnitude### - could also be done using conversion from flux 
+    m_ab = np.mean(alldata['mag_bgsub'])
     #Calculate c_mag based on ranges:
     if m_ab < 16:
         c_mag = 1
@@ -65,6 +64,20 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment):
         c_mag = .25
     else:
         c_mag = 0
+
+    ###Check if in knownvariable###
+    c_known = 0
+    df_known_variables_DAV = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/DAVInstabilityStrip.csv")
+    dav_ra_dec = [ "".join(radec.split()) for radec in df_known_variables_DAV['RA,DEC (J2000)'] ]
+    if source in dav_ra_dec:
+        print("Known DAV variable")
+        c_known = 1
+
+    df_known_variables_DBV = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/DBVInstabilityStrip.csv")
+    dbv_ra_dec = [ "".join(radec.split()) for radec in df_known_variables_DBV['RA_DEC'] ]
+    if source in dbv_ra_dec:
+        print("Known DBV variable")
+        c_known = 1
 
     ###Break the table into exposure groups### 
     breaks = []
@@ -225,7 +238,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment):
 
 
         ###Generate rating###
-        C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag)
+        C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag) - (w_known * c_known)
         print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
@@ -290,7 +303,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment):
 
         saveimagepath = str("PNGs/"+source+"-"+band+"qlp"+str(df_number)+".png")
         fig.savefig(saveimagepath)
-        fig.clf()
         df_numbers_run.append(df_number)
         df_number += 1
         
@@ -331,7 +343,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment):
     else:
         period_to_save = ''
 
-    ###Query Catalog###
+    ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
 
     idx_sdss = np.where(bigcatalog['SDSSDesignation'] == source)[0]
@@ -374,18 +386,77 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment):
     alldata_mediancps = np.median(alldata_cps_bgsub)
     alldata_cps_bgsub = ( alldata_cps_bgsub / alldata_mediancps ) - 1.0
     alldata_cps_bgsub_err = alldata['cps_bgsub_err'] / alldata_mediancps
-    figall, axall = plt.subplots(1,1, figsize=(16,12))
-    figall.suptitle("Combined Light Curve for " + source +"-"+ band+ " \n"+
-            "AB magnitude " + str(round(m_ab, 2)) + "\n" +
-            "Total rank: " + str(round(totalrank,2)) + " in "+str(len(data))+ " exposure groups \n"+
-            "Best rank: " +str(round(bestrank,2))+ " in exposure group " + str(best_expt_group) +"\n"+
-            "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
-            )
-    axall.errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=2, ms=15)
-    axall.errorbar(alldata_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=1, ls='', alpha=.125)
+    figall, axall = plt.subplots(2,1, figsize=(16,12))
+
+    #Try to find ASASSN data
+    if os.path.isfile('../ASASSNphot/sub/'+source+'_V.dat'):
+        print("ASASSN data exists")
+        figall, axall = plt.subplots(2,1, figsize=(16,12))
+        #Plot total light curve
+        axall[0].errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=2, ms=15)
+        axall[0].errorbar(alldata_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=1, ls='', alpha=.125)
+        axall[0].set_xlabel('Time [s]')
+        axall[0].set_ylabel('Relative Counts per Second')
+        #Plot ASASSN data
+        with open('../ASASSNphot/sub/'+source+'_V.dat') as f:
+            next(f)
+            df_ASASSN = pd.DataFrame(l.rstrip().split() for l in f)
+        
+        if (len(df_ASASSN.columns) > 13):
+            df_ASASSN.columns = ['JD', 'HJD', 'UT_date', 'IMAGE', 'FWHM', 'Diff', 'Limit', 'mag', 'mag_err', 'counts', 'counts_err', 'flux(mJy)', 'flux_err', '13', '14']
+        else:
+            df_ASASSN.columns = ['JD', 'HJD', 'UT_date', 'IMAGE', 'FWHM', 'Diff', 'Limit', 'mag', 'mag_err', 'counts', 'counts_err', 'flux(mJy)', 'flux_err']
+        #Grab points with weird error
+        #First get None/Null/NaN points
+        ASASSN_redpoints_idx = np.where( df_ASASSN['mag_err'].convert_objects(convert_numeric=True).isnull() )[0]
+        ASASSN_redpoints_JD = df_ASASSN['JD'][ASASSN_redpoints_idx]
+        ASASSN_redpoints_mag = df_ASASSN['mag'][ASASSN_redpoints_idx]
+        df_ASASSN = df_ASASSN.drop(index=ASASSN_redpoints_idx)
+        df_ASASSN = df_ASASSN.reset_index(drop=True)
+
+        
+        ASASSN_redpoints_idx_2 = np.where(df_ASASSN['mag_err'].convert_objects(convert_numeric=True) > 90)[0]
+        ASASSN_redpoints_JD += df_ASASSN['JD'][ASASSN_redpoints_idx_2]
+        ASASSN_redpoints_mag += df_ASASSN['mag'][ASASSN_redpoints_idx_2]
+        df_ASASSN = df_ASASSN.drop(index=ASASSN_redpoints_idx_2)
+        df_ASASSN = df_ASASSN.reset_index(drop=True)
+
+        ASASSN_JD = [ float(jd) for jd in df_ASASSN['JD'] ]
+        ASASSN_mag = [ float(mag) for mag in df_ASASSN['mag'] ]
+        ASASSN_mag_err = [ float(mag_err) for mag_err in df_ASASSN['mag_err'] ]
+
+        axall[1].errorbar(ASASSN_JD, ASASSN_mag, yerr=ASASSN_mag_err, color='k', ls='-')
+        axall[1].plot(ASASSN_redpoints_JD, ASASSN_redpoints_mag, color='r', ls='')
+        axall[1].set_xlabel('JD')
+        axall[1].set_ylabel("V Magnitude")
+    else:
+        print("No ASASSN data")
+        figall, axall = plt.subplots(1,1,figsize=(16,12))
+        #Plot total light curve
+        axall.errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=2, ms=15)
+        axall.errorbar(alldata_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=1, ls='', alpha=.125)
+        axall.set_xlabel('Time [s]')
+        axall.set_ylabel('Relative Counts per Second')
+        axall.set_title('ASASSN V band LC')
+
+    #If its a known variable, add that to the title
+    if c_known == 0:
+        figall.suptitle("Combined Light Curve for " + source +"-"+ band+ " \n"+
+                "AB magnitude " + str(round(m_ab, 2)) + "\n" +
+                "Total rank: " + str(round(totalrank,2)) + " in "+str(len(data))+ " exposure groups \n"+
+                "Best rank: " +str(round(bestrank,2))+ " in exposure group " + str(best_expt_group) +"\n"+
+                "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
+                )
+    else:
+        figall.suptitle("Combined Light Curve for " + source +"-"+ band+ " Known Variable \n"+
+                "AB magnitude " + str(round(m_ab, 2)) + "\n" +
+                "Total rank: " + str(round(totalrank,2)) + " in "+str(len(data))+ " exposure groups \n"+
+                "Best rank: " +str(round(bestrank,2))+ " in exposure group " + str(best_expt_group) +"\n"+
+                "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
+                )
+    
     allsaveimagepath = str("PNGs/"+source+"all-"+band+".png")
     figall.savefig(allsaveimagepath)
-    figall.clf()
     #Call the pdfcreator script
     subprocess.call(['PDFcreator', '-s', source])
 
@@ -403,7 +474,8 @@ if __name__ == '__main__':
     parser.add_argument("--w_expt", help= "Weight for exposure time", default = .25, type=float)
     parser.add_argument("--w_ac", help="Weight for autocorrelation", default = 0, type=float)
     parser.add_argument("--w_mag", help= "Weight for magnitude", default=.5, type=float)
+    parser.add_argument("--w_known", help="Weight for if known (subtracted)", default=.75, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
     args= parser.parse_args()
 
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, comment=args.comment)
+    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, comment=args.comment)

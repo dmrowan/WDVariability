@@ -16,9 +16,14 @@ import matplotlib.image as mpimg
 import subprocess
 import multiprocessing as mp
 import WDranker_2
+import time
+import warnings
 #Dom Rowan REU 2018
 
-def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, comment, noreplace):
+warnings.simplefilter("once")
+
+def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment, noreplace):
+    t_start = time.process_time()
     pool=mp.Pool(processes=4)
     jobs=[]
     
@@ -30,8 +35,10 @@ def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, comment, noreplace):
             else:
                     #job = pool.apply(WDranker_2.main, args=(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment,))
                     #jobs.append(job)
-                    WDranker_2.main(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment)
+                    WDranker_2.main(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment)
 
+    elapsed_time = time.process_time() - t_start
+    print(elapsed_time)
 
 if __name__ == '__main__':
 
@@ -47,9 +54,10 @@ if __name__ == '__main__':
     parser.add_argument("--w_expt", help= "Weight for exposure time", default = .25, type=float)
     parser.add_argument("--w_ac", help="Weight for autocorrelation", default = 0, type=float)
     parser.add_argument("--w_mag", help= "Weight for magnitude", default=.5, type=float)
+    parser.add_argument("--w_known", help="Weight for if known (subtracted)", default=.75, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
     parser.add_argument("--noreplace", help="Continue for new sources rather than overwriting", default=False, action='store_true')
 
     args = parser.parse_args()
 
-    main(fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, comment=args.comment, noreplace=args.noreplace)
+    main(fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, comment=args.comment, noreplace=args.noreplace)
