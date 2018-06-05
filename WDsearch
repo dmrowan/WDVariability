@@ -65,4 +65,4 @@ for filename in os.listdir(os.getcwd()):
 
 #Make output df
 output_df = pd.DataFrame({"SourceName":source_list, "SimbadExistence":simbad_existence, "SimbadName":simbad_name})
-output_df.to_csv("AllCatalog_Simbad.csv")
+output_df.to_csv("Catalog/AllCatalog_Simbad.csv")
