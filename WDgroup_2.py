@@ -18,12 +18,19 @@ import multiprocessing as mp
 import WDranker_2
 import time
 import warnings
+import datetime
 #Dom Rowan REU 2018
 
 warnings.simplefilter("once")
 
+def wdsubprocess(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment=None):
+    if comment is None:
+        subprocess.run(['WDranker_2.py', '--csvname', str(filename), '--fap', str(fap), '--prange', str(prange), '--w_pgram', str(w_pgram), '--w_expt', str(w_expt), '--w_ac', str(w_ac), '--w_mag', str(w_mag), '--w_known', str(w_known)])
+    else:
+        subprocess.run(['WDranker_2.py', '--csvname', str(filename), '--fap', str(fap), '--prange', str(prange), '--w_pgram', str(w_pgram), '--w_expt', str(w_expt), '--w_ac', str(w_ac), '--w_mag', str(w_mag), '--w_known', str(w_known), '--comment'])
+
 def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment, noreplace):
-    t_start = time.process_time()
+    print(datetime.datetime.now())
     pool=mp.Pool(processes=4)
     jobs=[]
     
@@ -33,13 +40,21 @@ def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment, noreplace)
                 print("Output for "+filename[:-4]+" already exists, skipping")
                 continue
             else:
-                    #job = pool.apply(WDranker_2.main, args=(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, comment,))
-                    #jobs.append(job)
-                    WDranker_2.main(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment)
+                    #Haven't tested any of the times
+                    job = pool.apply(WDranker_2.main, args=(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment,))
+                    jobs.append(job)
 
-    elapsed_time = time.process_time() - t_start
-    print(elapsed_time)
+                    #This returns a memory error
+                    #WDranker_2.main(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment)
 
+                    #This works totally fine
+                    #subprocess.run(['WDranker_2.py', '--csvname', str(filename), '--fap', str(fap), '--prange', str(prange), '--w_pgram', str(w_pgram), '--w_expt', str(w_expt), '--w_ac', str(w_ac), '--w_mag', str(w_mag), '--w_known', str(w_known)])
+
+                    #if comment == False:
+                    #    wdsubprocess(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known)
+
+    print(datetime.datetime.now())
+    
 if __name__ == '__main__':
 
     desc = """

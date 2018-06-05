@@ -3,23 +3,25 @@
 #Call from directory containg csvs
 #Feed this in at the end of WDranker to make the PDF
 
-while getopts ":s:" opt; do
+while getopts ":s:b:" opt; do
 	case $opt in 
 	  s) source="$OPTARG"
+	  ;;
+ 	  b) band="$OPTARG"
 	  ;;
   	  \?) echo "Invalid option -$OPTARG" >&2
   	  ;;
 	esac
 done
 
-[ -f PDFs/${source}_combined.pdf ]  && rm -f PDFs/${source}_combined.pdf
+[ -f PDFs/${source}_${band}_combined.pdf ]  && rm -f PDFs/${source}_${band}_combined.pdf
 
-cp PNGs/${source}*.png PDFs/
+cp PNGs/${source}-${band}*.png PDFs/
 
-for i in PDFs/${source}*.png; do convert $i $i.pdf; done
+for i in PDFs/${source}-${band}*.png; do convert $i $i.pdf; done
 
-rm -f PDFs/${source}*.png
+rm -f PDFs/${source}-${band}*.png
 
-pdfunite $(ls -v PDFs/${source}*.pdf) PDFs/${source}_combined.pdf
+pdfunite $(ls -v PDFs/${source}-${band}*.pdf) PDFs/${source}_${band}_combined.pdf
 
-rm -f PDFs/${source}*.png.pdf
+rm -f PDFs/${source}-${band}*.png.pdf

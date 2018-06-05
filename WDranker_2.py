@@ -18,6 +18,36 @@ import warnings
 
 warnings.simplefilter("once")
 
+#Function to read in ASASSN data - even weird tables 
+def readASASSN(path):
+    jd_list = []
+    mag_list = []
+    mag_err_list = []
+    with open(path) as f:
+        for line in f:
+            if line[0].isdigit():
+                datlist = line.rstrip().split()
+                jd_list.append(datlist[0])
+                mag_list.append(datlist[7])
+                mag_err_list.append(datlist[8])
+
+    i=0
+    while i < len(mag_err_list):
+        if float(mag_err_list[i]) > 10:
+            del jd_list[i]
+            del mag_list[i]
+            del mag_err_list[i]
+        else:
+            i += 1
+
+    jd_list = [ float(element) for element in jd_list ] 
+    mag_list = [ float(element) for element in mag_list ]
+    mag_err_list = [ float(element) for element in mag_err_list ]
+
+    return [jd_list, mag_list, mag_err_list]
+
+
+
 def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     #Path assertions
     assert(os.path.isfile(csvname))
@@ -40,8 +70,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     #Grab the band (also checks we have source csv)
     if csvpath[-7] == 'N':
         band = 'NUV'
+        band_other = 'FUV'
     elif csvpath[-7] == 'F':
         band = 'FUV'
+        band_other = 'NUV'
 
     assert(band is not None)
     print(source, band)
@@ -107,17 +139,33 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         exposure = lasttime - firsttime
         c_exposure = (lasttime - firsttime) / 1000
 
+        ###Dataframe corrections###
+        
+        #Fix rows with weird t_mean time
+        #   (some rows have almost zero t_mean, just average t0 and t1 in those rows)
+        idx_tmean_fix = np.where( (df['t_mean'] < 1) | (df['t_mean'] > 1e100) )[0] + df.index[0]
+        for idx in idx_tmean_fix:
+            t0 = df['t0'][idx]
+            t1 = df['t1'][idx]
+            mean = (t1 + t0) / 2.0
+            df['t_mean'][idx] = mean
+
         #Reset first time in t_mean to be 0
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
 
-        #Find indicies of data above 5 sigma of mean (counts per second column), flagged points, and pointes with
+        #Find indicies of data above 5 sigma of mean (counts per second column), flagged points, and points with
         # less than 10 seconds of exposure time
         stdev = np.std(df['cps_bgsub'])
-        redpoints = np.where( ((df['cps_bgsub'] - np.mean(df['cps_bgsub'])) > 5*stdev) | (df['flags']!=0) | (df['exptime'] < 10) )[0]
+        bluepoints = np.where( (df['cps_bgsub'] - np.mean(df['cps_bgsub'])) > 5*stdev )[0]
+        redpoints = np.where( (df['flags']!=0) | (df['exptime'] < 10) )[0]
         redpoints = redpoints + df.index[0]
+        bluepoints = bluepoints + df.index[0]
+
+        droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
+
         #print("Removing " +  str(len(redpoints)) + " bad points")
-        df_reduced = df.drop(index=redpoints)
+        df_reduced = df.drop(index=droppoints)
         
 
         if df_reduced.shape[0] < 7:
@@ -140,13 +188,20 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         cps_bgsub_err = df_reduced['cps_bgsub_err'] / cps_bgsub_median
         t_mean = df_reduced['t_mean']
 
-        #Make the correction for relative scales for redpoints
+        #Make the correction for relative scales for redpoints and purplepoints
         if len(redpoints) != 0:
             cps_bgsub_red = df['cps_bgsub'][redpoints]
             cps_bgsub_median_red = np.median(cps_bgsub_red)
             cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median_red) - 1.0
             cps_bgsub_err_red = df['cps_bgsub_err'][redpoints] / cps_bgsub_median_red
             t_mean_red = df['t_mean'][redpoints]
+
+        if len(bluepoints) != 0:
+            cps_bgsub_blue = df['cps_bgsub'][bluepoints]
+            cps_bgsub_median_blue = np.median(cps_bgsub_blue)
+            cps_bgsub_blue = (cps_bgsub_blue / cps_bgsub_median_blue) - 1.0
+            cps_bgsub_err_blue = df['cps_bgsub_err'][bluepoints] / cps_bgsub_median_blue
+            t_mean_blue = df['t_mean'][bluepoints]
 
         ###Periodogram Creation###
         #Fist do the periodogram of the data
@@ -219,10 +274,11 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
             numberofzeros = len(autocorr_result)
             autocorr_result = np.zeros(numberofzeros)
 
+        '''
         ac_x = range(len(autocorr_result))
-        '''
+        
         popt, pcov = curve_fit(fitfunc, ac_x, autocorr_result)
-        '''
+        
         params = np.polyfit(ac_x, autocorr_result, 1)
         residuals = autocorr_result - (ac_x*params[0]+params[1])
         #residuals = autocorr_result - fitfunc(ac_x, *popt)
@@ -235,7 +291,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         else:
             r_squared = 1 - (ss_res / ss_tot)
             c_autocorr = 1 - r_squared
-
+        '''
+        c_autocorr = 0
 
         ###Generate rating###
         C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag) - (w_known * c_known)
@@ -250,7 +307,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
                 "Exposure group: " + str(df_number) +"\n"+
                 #"SSPs: "+str(len(sspeaks)) + "\n" +
                 "Periodogram ratio: "+str(c_periodogram) + "\n" +
-                "Autocorr Fit R^2: " + str(r_squared) + "\n" +
                 "Ranking: " + str(C)
                 )
 
@@ -260,7 +316,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         ax[0][0].errorbar(t_mean, cps_bgsub, yerr=cps_bgsub_err, color='purple', marker='.', ls='-')
         if len(redpoints) != 0:
             ax[0][0].errorbar(t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='r', marker='.', ls='')
-        
+        if len(bluepoints) != 0:
+            ax[0][0].errorbar(t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='b', marker='.', ls='')
         ax[0][0].set_title(band+' light curve')
         ax[0][0].set_xlabel('Mean Time (GALEX)')
         ax[0][0].set_ylabel('Variation in CPS')
@@ -268,11 +325,11 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         #Subplot for autocorr
         ax[1][0].plot(autocorr_result, 'b-', label='data')
         #ax[1][0].plot(ac_x, fitfunc(ac_x, *popt), 'g-', label='fit')
-        ax[1][0].plot(residuals, 'r--', alpha=.25, label='residuals')
-        ax[1][0].plot(ac_x, ac_x*params[0]+params[1], 'r--', alpha=.5, label='linear fit')
+        #ax[1][0].plot(residuals, 'r--', alpha=.25, label='residuals')
+        #ax[1][0].plot(ac_x, ac_x*params[0]+params[1], 'r--', alpha=.5, label='linear fit')
         ax[1][0].set_title('Autocorrelation')
         ax[1][0].set_xlabel('Delay')
-        ax[1][0].legend()
+        #ax[1][0].legend()
 
         #Subplot for periodogram
         ax[0][1].plot(freq, amp, 'g-', label='Data')
@@ -305,6 +362,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         fig.savefig(saveimagepath)
         df_numbers_run.append(df_number)
         df_number += 1
+
+        #Close figure
+        fig.clf()
+        plt.close('all')
         
         #Information for big light curve
         biglc_time.append(np.mean(t_mean + firsttime_mean))
@@ -315,7 +376,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     totalrank = np.sum(c_vals)
     if len(c_vals) !=0:
         bestrank = max(c_vals)
-        idx_best = np.where(c_vals == bestrank)[0][0]
+        idx_best = np.where(np.array(c_vals) == bestrank)[0][0]
         best_expt_group = df_numbers_run[idx_best]
     else:
         bestrank = 0
@@ -375,8 +436,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
     #Generate output csv with pandas
     dfoutput = pd.DataFrame()
-    dfoutput = dfoutput.append({"SourceName":source, "band":band, "TotalRank":round(totalrank,3), "BestRank":round(bestrank,3), "Comment":comment_value, "ABMag":round(m_ab, 2), "StrongestPeriod":period_to_save, "SimbadName":simbad_name, "gmag":g_mag, "dType":sdss_dtype, "FlaggedRatio":flaggedratio}, ignore_index=True)
-    dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv")
+    dfoutput = dfoutput.append({"SourceName":source, "band":band, "TotalRank":round(totalrank,3), "BestRank":round(bestrank,3), "Comment":comment_value, "ABMag":round(m_ab, 2), "StrongestPeriod":period_to_save, "SimbadName":simbad_name, "gmag":g_mag, "dType":sdss_dtype, "FlaggedRatio":flaggedratio, "KnownVariable":c_known}, ignore_index=True)
+    dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv", index=False)
 
 
     ###Generate multiplage pdf###
@@ -388,47 +449,45 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     alldata_cps_bgsub_err = alldata['cps_bgsub_err'] / alldata_mediancps
     figall, axall = plt.subplots(2,1, figsize=(16,12))
 
+
+    #See if we have any data in the other band
+    csvpath_other = list(csvpath)
+    csvpath_other[-7] = band_other[0]
+    csvpath_other = "".join(csvpath_other)
+    if os.path.isfile(csvpath_other):
+        print("Generating additional LC data for " + band_other + " band")
+        alldata_other = pd.read_csv(csvpath_other)
+        alldata_tmean_other = alldata_other['t_mean']
+        alldata_cps_bgsub_other = alldata_other['cps_bgsub']
+        alldata_mediancps_other = np.median(alldata_cps_bgsub_other)
+        alldata_cps_bgsub_other = ( alldata_cps_bgsub_other / alldata_mediancps_other ) - 1.0
+        alldata_cps_bgsub_err_other = alldata_other['cps_bgsub_err'] / alldata_mediancps_other
+        axall[0].errorbar(alldata_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color='blue', marker='.', ls='-', zorder=2)
     #Try to find ASASSN data
-    if os.path.isfile('../ASASSNphot/sub/'+source+'_V.dat'):
+    if os.path.isfile('../ASASSNphot/ap_phot/'+source+'_V.dat'):
         print("ASASSN data exists")
         figall, axall = plt.subplots(2,1, figsize=(16,12))
         #Plot total light curve
-        axall[0].errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=2, ms=15)
+        axall[0].errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=3, ms=15)
         axall[0].errorbar(alldata_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=1, ls='', alpha=.125)
         axall[0].set_xlabel('Time [s]')
         axall[0].set_ylabel('Relative Counts per Second')
         #Plot ASASSN data
-        with open('../ASASSNphot/sub/'+source+'_V.dat') as f:
-            next(f)
-            df_ASASSN = pd.DataFrame(l.rstrip().split() for l in f)
-        
-        if (len(df_ASASSN.columns) > 13):
-            df_ASASSN.columns = ['JD', 'HJD', 'UT_date', 'IMAGE', 'FWHM', 'Diff', 'Limit', 'mag', 'mag_err', 'counts', 'counts_err', 'flux(mJy)', 'flux_err', '13', '14']
-        else:
-            df_ASASSN.columns = ['JD', 'HJD', 'UT_date', 'IMAGE', 'FWHM', 'Diff', 'Limit', 'mag', 'mag_err', 'counts', 'counts_err', 'flux(mJy)', 'flux_err']
-        #Grab points with weird error
-        #First get None/Null/NaN points
-        ASASSN_redpoints_idx = np.where( df_ASASSN['mag_err'].convert_objects(convert_numeric=True).isnull() )[0]
-        ASASSN_redpoints_JD = df_ASASSN['JD'][ASASSN_redpoints_idx]
-        ASASSN_redpoints_mag = df_ASASSN['mag'][ASASSN_redpoints_idx]
-        df_ASASSN = df_ASASSN.drop(index=ASASSN_redpoints_idx)
-        df_ASASSN = df_ASASSN.reset_index(drop=True)
+        ASASSN_output_V = readASASSN('../ASASSNphot/ap_phot/'+source+'_V.dat')
+        ASASSN_JD_V = ASASSN_output_V[0]
+        ASASSN_mag_V = ASASSN_output_V[1]
+        ASASSN_mag_err_V = ASASSN_output_V[2]
 
-        
-        ASASSN_redpoints_idx_2 = np.where(df_ASASSN['mag_err'].convert_objects(convert_numeric=True) > 90)[0]
-        ASASSN_redpoints_JD += df_ASASSN['JD'][ASASSN_redpoints_idx_2]
-        ASASSN_redpoints_mag += df_ASASSN['mag'][ASASSN_redpoints_idx_2]
-        df_ASASSN = df_ASASSN.drop(index=ASASSN_redpoints_idx_2)
-        df_ASASSN = df_ASASSN.reset_index(drop=True)
+        ASASSN_output_g = readASASSN('../ASASSNphot/ap_phot/'+source+'_V.dat')
+        ASASSN_JD_g = ASASSN_output_g[0]
+        ASASSN_mag_g = ASASSN_output_g[1]
+        ASASSN_mag_err_g = ASASSN_output_g[2]
 
-        ASASSN_JD = [ float(jd) for jd in df_ASASSN['JD'] ]
-        ASASSN_mag = [ float(mag) for mag in df_ASASSN['mag'] ]
-        ASASSN_mag_err = [ float(mag_err) for mag_err in df_ASASSN['mag_err'] ]
-
-        axall[1].errorbar(ASASSN_JD, ASASSN_mag, yerr=ASASSN_mag_err, color='k', ls='-')
-        axall[1].plot(ASASSN_redpoints_JD, ASASSN_redpoints_mag, color='r', ls='')
+        axall[1].errorbar(ASASSN_JD_V, ASASSN_mag_V, yerr=ASASSN_mag_err_V, color='blue', ls='-', label='V band')
+        axall[1].errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band')
         axall[1].set_xlabel('JD')
         axall[1].set_ylabel("V Magnitude")
+        axall[1].legend()
     else:
         print("No ASASSN data")
         figall, axall = plt.subplots(1,1,figsize=(16,12))
@@ -455,10 +514,13 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
                 "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
                 )
     
-    allsaveimagepath = str("PNGs/"+source+"all-"+band+".png")
+    allsaveimagepath = str("PNGs/"+source+"-"+band+"all"+".png")
     figall.savefig(allsaveimagepath)
+    #Clear figure
+    figall.clf()
+    plt.close('all')
     #Call the pdfcreator script
-    subprocess.call(['PDFcreator', '-s', source])
+    subprocess.run(['PDFcreator', '-s', source, '-b', band])
 
 if __name__ == '__main__':
     

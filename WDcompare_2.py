@@ -51,7 +51,7 @@ def main(sortmag, sortcomment, sortperiod, flaghist):
         bigdf = bigdf.sort_values('BestRank', ascending=False)
 
     #Write to CSV        
-    bigdf.to_csv("Output/AllData.csv")
+    bigdf.to_csv("Output/AllData.csv", index=False)
 
     #Generate histogram
     if flaghist:
