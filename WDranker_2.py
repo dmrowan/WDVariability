@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import print_function, division
+from __future__ import print_function, division, absolute_import
 import os, sys
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,6 +14,18 @@ import heapq
 import matplotlib.image as mpimg
 import subprocess
 import warnings
+
+import importlib
+gu = importlib.import_module('gPhoton.gphoton_utils')
+
+#import gPhoton.gphoton_utils as gu
+
+#from gPhoton import gphoton_utils as gu
+
+#from gPhoton import gphoton_utils
+#gu = gphoton_utils
+
+
 #Dom Rowan REU 2018
 
 warnings.simplefilter("once")
@@ -74,16 +86,39 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     elif csvpath[-7] == 'F':
         band = 'FUV'
         band_other = 'NUV'
+    else:
+        print("Not source csv, skipping")
+        return
 
     assert(band is not None)
     print(source, band)
 
+    bandcolors = {'NUV':'purple', 'FUV':'orange'}
+
     alldata = pd.read_csv(csvpath)
     
+    #Drop rows with > 10e10 in cps, cps_err
+    idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) )[0]
+    if len(idx_high_cps) != 0:
+        alldata = alldata.drop(index = idx_high_cps)
+        alldata = alldata.reset_index(drop=True)
+
+    #Fix rows with weird t_means
+    #    (some rows have almost zero t_mean, just average t0 and t1 in those rows)
+    idx_tmean_fix = np.where( (alldata['t_mean'] < 1) | (alldata['t_mean'] > 1e15) | (np.isnan(alldata['t_mean'])) )[0]
+    for idx in idx_tmean_fix:
+        t0 = alldata['t0'][idx]
+        t1 = alldata['t1'][idx]
+        mean = (t1 + t0) / 2.0
+        alldata['t_mean'][idx] = mean
+
     #Get information on flags
     n_rows = alldata.shape[0]
     n_flagged = len( np.where(alldata['flags'] != 0)[0])
-    flaggedratio = float(n_flagged) / float(n_rows)
+    if float(n_rows) ==0:
+        flaggedratio = float('NaN')
+    else:
+        flaggedratio = float(n_flagged) / float(n_rows)
 
     ###Apparent Magnitude### - could also be done using conversion from flux 
     m_ab = np.mean(alldata['mag_bgsub'])
@@ -96,6 +131,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         c_mag = .25
     else:
         c_mag = 0
+
 
     ###Check if in knownvariable###
     c_known = 0
@@ -111,7 +147,45 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         print("Known DBV variable")
         c_known = 1
 
-    ###Break the table into exposure groups### 
+    ###See if we have any data in the other band###
+    csvpath_other = list(csvpath)
+    csvpath_other[-7] = band_other[0]
+    csvpath_other = "".join(csvpath_other)
+    if os.path.isfile(csvpath_other):
+        other_band_exists = True
+        alldata_other = pd.read_csv(csvpath_other)
+    else:
+        other_band_exists = False
+
+    if other_band_exists:
+        print("Generating additional LC data for " + band_other + " band")
+        alldata_other = pd.read_csv(csvpath_other)
+        #Drop bad rows, flagged rows
+        idx_high_cps_other = np.where( (abs(alldata_other['cps_bgsub']) > 10e10) | (alldata_other['cps_bgsub_err'] > 10e10) )[0]
+        #Not interested in looking at red/blue points for other band
+            #drop flagged, expt < 10
+        idx_other_flagged = np.where( alldata_other['flags'] != 0 | (alldata_other['exptime'] < 10) )[0]
+        idx_other_todrop = np.unique(np.concatenate([idx_high_cps_other, idx_other_flagged]))
+        alldata_other = alldata_other.drop(index=idx_other_todrop)
+        alldata_other = alldata_other.reset_index(drop=True)
+
+        #Fix rows with weird t_mean time
+        #   (some rows have almost zero t_mean, just average t0 and t1 in those rows)
+        idx_tmean_fix_other = np.where( (alldata_other['t_mean'] < 1) | (alldata_other['t_mean'] > 1e15) | (np.isnan(alldata_other['t_mean'])) )[0]
+        for idx in idx_tmean_fix_other:
+            t0 = alldata_other['t0'][idx]
+            t1 = alldata_other['t1'][idx]
+            mean = (t1 + t0) / 2.0
+            alldata_other['t_mean'][idx] = mean
+
+        #Make correction for relative scales
+        alldata_tmean_other = alldata_other['t_mean']
+        alldata_cps_bgsub_other = alldata_other['cps_bgsub']
+        alldata_mediancps_other = np.median(alldata_cps_bgsub_other)
+        alldata_cps_bgsub_other = ( alldata_cps_bgsub_other / alldata_mediancps_other ) - 1.0
+        alldata_cps_bgsub_err_other = alldata_other['cps_bgsub_err'] / alldata_mediancps_other
+
+    ###Break the alldata table into exposure groups### 
     breaks = []
     for i in range(len(alldata['t0'])):
         if i != 0:
@@ -133,7 +207,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     ###Loop through each exposure group###
     for df in data:
         #Find exposure time
-        #Question: using t1 and t0 columns, or just t0
+        #Hopefully won't need this when data is fixed
+        if len(df['t1']) == 0:
+            df_number += 1
+            continue
         lasttime = list(df['t1'])[-1]
         firsttime = list(df['t0'])[0]
         exposure = lasttime - firsttime
@@ -141,15 +218,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
         ###Dataframe corrections###
         
-        #Fix rows with weird t_mean time
-        #   (some rows have almost zero t_mean, just average t0 and t1 in those rows)
-        idx_tmean_fix = np.where( (df['t_mean'] < 1) | (df['t_mean'] > 1e100) )[0] + df.index[0]
-        for idx in idx_tmean_fix:
-            t0 = df['t0'][idx]
-            t1 = df['t1'][idx]
-            mean = (t1 + t0) / 2.0
-            df['t_mean'][idx] = mean
-
         #Reset first time in t_mean to be 0
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
@@ -166,7 +234,13 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
         #print("Removing " +  str(len(redpoints)) + " bad points")
         df_reduced = df.drop(index=droppoints)
-        
+        df_reduced = df_reduced.reset_index(drop=True)
+
+        #Remove points where cps_bgsub is nan
+        idx_cps_nan = np.where( np.isnan(df_reduced['cps_bgsub']) )[0]
+        if len(idx_cps_nan) != 0:
+            df_reduced = df_reduced.drop(index=idx_cps_nan)
+            df_reduced = df_reduced.reset_index(drop=True)
 
         if df_reduced.shape[0] < 7:
             print("Not enough points for this exposure group, skipping. Removed " +  str(len(redpoints)) + " bad points")
@@ -187,6 +261,18 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
         cps_bgsub_err = df_reduced['cps_bgsub_err'] / cps_bgsub_median
         t_mean = df_reduced['t_mean']
+        
+        #If we have data in the other band, find points corresponding to this exposure group
+        #We've already done the relative scale correction (on the entire alldata_other table)
+        #First get the indicies corresponding to this group in the other band
+        if other_band_exists:
+            idx_exposuregroup_other = np.where( (alldata_tmean_other > firsttime) & (alldata_tmean_other < lasttime))[0]
+            t_mean_other = alldata_tmean_other[idx_exposuregroup_other] - firsttime_mean
+            cps_bgsub_other = alldata_cps_bgsub_other[idx_exposuregroup_other]
+            cps_bgsub_err_other = alldata_cps_bgsub_err_other[idx_exposuregroup_other]
+
+        #Convert times to JD
+        #t_mean_2 = [ gu.calculate_jd(time) for time in t_mean ] 
 
         #Make the correction for relative scales for redpoints and purplepoints
         if len(redpoints) != 0:
@@ -205,6 +291,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
         ###Periodogram Creation###
         #Fist do the periodogram of the data
+        #if df_number == 7:
+        #    print(cps_bgsub)
         ls = LombScargle(t_mean, cps_bgsub)
         freq, amp = ls.autopower(nyquist_factor=1)
         
@@ -311,16 +399,22 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
                 )
 
         #Subplot for LC
-        #Change: Divide cps by median then subtract 1 from it, use this for periodogram and lc plota
-        #Change: Divide error column by median cps as well
-        ax[0][0].errorbar(t_mean, cps_bgsub, yerr=cps_bgsub_err, color='purple', marker='.', ls='-')
+        #Convert to JD here as well
+        jd_t_mean = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean ]
+        ax[0][0].errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
         if len(redpoints) != 0:
-            ax[0][0].errorbar(t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='r', marker='.', ls='')
+            jd_t_mean_red = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
+            ax[0][0].errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='r', marker='.', ls='', zorder=2, alpha=.5)
         if len(bluepoints) != 0:
-            ax[0][0].errorbar(t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='b', marker='.', ls='')
+            jd_t_mean_blue = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
+            ax[0][0].errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='b', marker='.', ls='', zorder=3, alpha=.5)
+        if other_band_exists:
+            jd_t_mean_other = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
+            ax[0][0].errorbar(jd_t_mean_other, cps_bgsub_other, yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
         ax[0][0].set_title(band+' light curve')
-        ax[0][0].set_xlabel('Mean Time (GALEX)')
+        ax[0][0].set_xlabel('Time JD')
         ax[0][0].set_ylabel('Variation in CPS')
+        ax[0][0].legend()
 
         #Subplot for autocorr
         ax[1][0].plot(autocorr_result, 'b-', label='data')
@@ -339,7 +433,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         ax[0][1].set_ylabel('Amplitude')
         ax[0][1].set_xlim(0, np.max(freq))
         if any(np.isnan(x) for x in top5amp_detrad):
-            print("No detrad peaks")
+            print("No detrad peaks for exposure group " + str(df_number))
         else:
             for tup in bad_detrad:
                 ax[0][1].axvspan(tup[0], tup[1], alpha=.1, color='black')
@@ -441,37 +535,40 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
 
     ###Generate multiplage pdf###
+    #Drop flagged rows from alldata
+    alldata_flag_idx = np.where( alldata['flags'] !=0)[0]
+    alldata = alldata.drop(index = alldata_flag_idx)
+    alldata = alldata.reset_index(drop=True)
     #Make the correction for relative scales
     alldata_tmean = alldata['t_mean']
     alldata_cps_bgsub = alldata['cps_bgsub']
-    alldata_mediancps = np.median(alldata_cps_bgsub)
+    alldata_mediancps = np.nanmedian(alldata_cps_bgsub)
     alldata_cps_bgsub = ( alldata_cps_bgsub / alldata_mediancps ) - 1.0
     alldata_cps_bgsub_err = alldata['cps_bgsub_err'] / alldata_mediancps
-    figall, axall = plt.subplots(2,1, figsize=(16,12))
 
+    #Convert to JD
+    alldata_jd_tmean = [ gu.calculate_jd(t) for t in alldata_tmean ] 
+    biglc_jd_time = [ gu.calculate_jd(t) for t in biglc_time ]
+    if other_band_exists:
+        alldata_jd_tmean_other = [ gu.calculate_jd(t) for t in alldata_tmean_other ]
 
-    #See if we have any data in the other band
-    csvpath_other = list(csvpath)
-    csvpath_other[-7] = band_other[0]
-    csvpath_other = "".join(csvpath_other)
-    if os.path.isfile(csvpath_other):
-        print("Generating additional LC data for " + band_other + " band")
-        alldata_other = pd.read_csv(csvpath_other)
-        alldata_tmean_other = alldata_other['t_mean']
-        alldata_cps_bgsub_other = alldata_other['cps_bgsub']
-        alldata_mediancps_other = np.median(alldata_cps_bgsub_other)
-        alldata_cps_bgsub_other = ( alldata_cps_bgsub_other / alldata_mediancps_other ) - 1.0
-        alldata_cps_bgsub_err_other = alldata_other['cps_bgsub_err'] / alldata_mediancps_other
-        axall[0].errorbar(alldata_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color='blue', marker='.', ls='-', zorder=2)
     #Try to find ASASSN data
     if os.path.isfile('../ASASSNphot/ap_phot/'+source+'_V.dat'):
         print("ASASSN data exists")
         figall, axall = plt.subplots(2,1, figsize=(16,12))
         #Plot total light curve
-        axall[0].errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=3, ms=15)
-        axall[0].errorbar(alldata_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=1, ls='', alpha=.125)
+        axall[0].errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
+        axall[0].errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
         axall[0].set_xlabel('Time [s]')
         axall[0].set_ylabel('Relative Counts per Second')
+        #Plot data in other band
+        if other_band_exists:
+            print("Plotting additional LC data for " + band_other + " band")
+            axall[0].errorbar(alldata_jd_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
+        axall[0].set_xlabel('Time [s]')
+        axall[0].set_ylabel('Relative Counts per Second')
+        axall[0].legend()
+
         #Plot ASASSN data
         ASASSN_output_V = readASASSN('../ASASSNphot/ap_phot/'+source+'_V.dat')
         ASASSN_JD_V = ASASSN_output_V[0]
@@ -487,16 +584,21 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         axall[1].errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band')
         axall[1].set_xlabel('JD')
         axall[1].set_ylabel("V Magnitude")
+        axall[1].set_title('ASASSN LC')
         axall[1].legend()
     else:
         print("No ASASSN data")
         figall, axall = plt.subplots(1,1,figsize=(16,12))
         #Plot total light curve
-        axall.errorbar(biglc_time, biglc_counts, yerr=biglc_err, color='purple', marker='.', ls='-',  zorder=2, ms=15)
-        axall.errorbar(alldata_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=1, ls='', alpha=.125)
+        axall.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
+        axall.errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
+        #Plot data in other band
+        if other_band_exists:
+            print("Plotting additional LC data for " + band_other + " band")
+            axall.errorbar(alldata_jd_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
         axall.set_xlabel('Time [s]')
         axall.set_ylabel('Relative Counts per Second')
-        axall.set_title('ASASSN V band LC')
+        axall.legend()
 
     #If its a known variable, add that to the title
     if c_known == 0:

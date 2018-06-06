@@ -38,15 +38,15 @@ def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment, noreplace)
         if filename.endswith('.csv'):
             if noreplace and os.path.isfile("Output/"+filename[:-4]+"-output.csv"):
                 print("Output for "+filename[:-4]+" already exists, skipping")
+                print('-'*100)
                 continue
             else:
                     #Haven't tested any of the times
-                    job = pool.apply(WDranker_2.main, args=(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment,))
-                    jobs.append(job)
+                    #job = pool.apply(WDranker_2.main, args=(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment,))
+                    #jobs.append(job)
 
-                    #This returns a memory error
-                    #WDranker_2.main(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment)
-
+                    WDranker_2.main(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment)
+                    print('-'*100)
                     #This works totally fine
                     #subprocess.run(['WDranker_2.py', '--csvname', str(filename), '--fap', str(fap), '--prange', str(prange), '--w_pgram', str(w_pgram), '--w_expt', str(w_expt), '--w_ac', str(w_ac), '--w_mag', str(w_mag), '--w_known', str(w_known)])
 
