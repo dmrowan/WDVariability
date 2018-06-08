@@ -1,36 +1,18 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
 import os, sys
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 from astropy import log
-from os import path
-from glob import glob
-from subprocess import check_call
-import shutil
-from astropy.table import Table
-import sys
-from datetime import datetime
-from dateutil import parser as pr
-import pylab
-import itertools
-from datetime import timedelta
-from matplotlib.backends.backend_pdf import PdfPages
 import astropy
-from radec_conversion import *
 import pandas as pd
-from astropy.stats import LombScargle
-import heapq
-import matplotlib.image as mpimg
-from scipy.optimize import curve_fit
-import time
 import subprocess
 import astroquery
-from astroquery.simbad import Simbad
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+import _pickle as pickle
+import ipdb
 #Dom Rowan REU 2018
 
 desc = """
@@ -55,6 +37,9 @@ gaia_bp_mean_mag = []
 gaia_rp_mean_flux = []
 gaia_rp_mean_flux_error = []
 gaia_rp_mean_mag = []
+gaia_nuv_time = []
+gaia_fuv_time = []
+
 
 sdss_designation = []
 sdss_u = []
@@ -68,8 +53,14 @@ sdss_si = []
 sdss_z = []
 sdss_sz = []
 sdss_dtype = []
+sdss_nuv_time = []
+sdss_fuv_time = []
 
-simbad_name = []
+
+with open('/home/dmrowan/WhiteDwarfs/checked.pickle', 'rb') as p:
+    picklelist = pickle.load(p)
+
+picklelist_names = [ pic[0] for pic in picklelist ]
 
 SDSSpath = "/home/dmrowan/WhiteDwarfs/Catalogs/SDSSCatalog.csv"
 df_SDSS = pd.read_csv("SDSSCatalog.csv")
@@ -100,8 +91,15 @@ for i in range(len(df_SDSS['ra'])):
         gaia_rp_mean_flux.append(df_GAIA['phot_rp_mean_flux'][idx])
         gaia_rp_mean_flux_error.append(df_GAIA['phot_rp_mean_flux_error'][idx])
         gaia_rp_mean_mag.append(df_GAIA['phot_rp_mean_mag'][idx])
+        pickleidxgaia = np.where(np.array(picklelist_names) == 'GaiaDR2-'+"".join(list(df_GAIA['designation'][idx])[9:]))[0]
+        if len(pickleidx > 0):
+            gaia_nuv_time.append(picklelist[pickleidxgaia[0]][1])
+            gaia_fuv_time.append(picklelist[pickleidxgaia[0]][2])
+        else:
+            gaia_nuv_time.append("")
+            gaia_fuv_time.append("")
     else:
-        print("SDSS source " + stringcoord + " not found in GAIA catalog")
+        #print("SDSS source " + stringcoord + " not found in GAIA catalog")
         gaia_designation.append("")
         gaia_ra.append("")
         gaia_dec.append("")
@@ -116,6 +114,8 @@ for i in range(len(df_SDSS['ra'])):
         gaia_rp_mean_flux.append("")
         gaia_rp_mean_flux_error.append("")
         gaia_rp_mean_mag.append("")
+        gaia_nuv_time.append("")
+        gaia_fuv_time.append("")
         
     #SDSS information
     sdss_designation.append(df_SDSS['SDSS-J'][i])
@@ -131,13 +131,14 @@ for i in range(len(df_SDSS['ra'])):
     sdss_sz.append(df_SDSS['sz'][i])
     sdss_dtype.append(df_SDSS['dtype'][i])
 
-    #Grab SIMBAD info
-    simbadcoord = SkyCoord(stringcoord, unit=(u.hour, u.deg))
-    q_result = Simbad.query_region(simbadcoord, 2*u.arcsec)
-    if q_result is not None:
-        simbad_name.append(str(q_result['MAIN_ID'][0]))
+    #Get expt info from pickle
+    pickleidx = np.where( np.array(picklelist_names) == df_SDSS['SDSS-J'][i] )[0]
+    if len(pickleidx > 0):
+        sdss_nuv_time.append(picklelist[pickleidx[0]][1])
+        sdss_fuv_time.append(picklelist[pickleidx[0]][2])
     else:
-        simbad_name.append("")
+        sdss_nuv_time.append("")
+        sdss_fuv_time.append("")
 
 #Now loop through sources in the gaia catalog
 for i in range(len(df_GAIA['designation'])):
@@ -158,6 +159,13 @@ for i in range(len(df_GAIA['designation'])):
         gaia_rp_mean_flux.append(df_GAIA['phot_rp_mean_flux'][i])
         gaia_rp_mean_flux_error.append(df_GAIA['phot_rp_mean_flux_error'][i])
         gaia_rp_mean_mag.append(df_GAIA['phot_rp_mean_mag'][i])
+        pickleidxgaia = np.where(np.array(picklelist_names) == 'GaiaDR2-'+"".join(list(df_GAIA['designation'][i])[9:]))[0]
+        if len(pickleidxgaia > 0):
+            gaia_nuv_time.append(picklelist[pickleidxgaia[0]][1])
+            gaia_fuv_time.append(picklelist[pickleidxgaia[0]][2])
+        else:
+            gaia_nuv_time.append("")
+            gaia_fuv_time.append("")
 
         sdss_designation.append("")
         sdss_u.append("")
@@ -171,14 +179,9 @@ for i in range(len(df_GAIA['designation'])):
         sdss_z.append("")
         sdss_sz.append("")
         sdss_dtype.append("")
+        sdss_nuv_time.append("")
+        sdss_fuv_time.append("")
 
-        #Grab SIMBAD info
-        simbadcoord = SkyCoord(df_GAIA['ra'][i], df_GAIA['dec'][i], unit='deg')
-        q_result = Simbad.query_region(simbadcoord, 2*u.arcsec)
-        if q_result is not None:
-            simbad_name.append(str(q_result['MAIN_ID'][0]))
-        else:
-            simbad_name.append("")
 
 #Create output dictionary
 output_dic = {
@@ -210,26 +213,85 @@ output_dic = {
         "sdss_sz":sdss_sz,
         "sdss_dtype":sdss_dtype,
 
-        "simbad_name":simbad_name,
+        "gaia_NUV_time":gaia_nuv_time,
+        "gaia_FUV_time":gaia_fuv_time,
+        "sdss_NUV_time":sdss_nuv_time,
+        "sdss_FUV_time":sdss_fuv_time,
 }
 
 #Construct df
 output_df = pd.DataFrame(output_dic)
 
 #Drop rows with type other than WD
-non_wd_idx = np.where(output_df['sdss_dtype'].str[0] != 'D')[0]
+non_wd_idx = np.where( (output_df['sdss_dtype'].str[0] != 'D') & (output_df['sdss_dtype'].notnull()) )[0]
 output_df = output_df.drop(index=non_wd_idx)
 output_df = output_df.reset_index(drop=True)
 
-#Drop rows where we dont have GALEX data (for SDSS sources only)
-#first grab rows where we only have SDSS data
-sdss_only = np.where( (output_df['GaiaDesignation'].isnull()) & (output_df['SDSSDesignation'].notnull()) )[0]
+
+#Drop rows where we have < 1000s NUV AND < 1000s FUV
 rows_to_drop = []
+for gnuv, gfuv, snuv, sfuv, i in zip(output_df['gaia_NUV_time'], output_df['gaia_FUV_time'], output_df['sdss_NUV_time'], output_df['sdss_FUV_time'], range(len(output_df['gaia_NUV_time']))):
+    if (gnuv=="" and gfuv=="") and (snuv!="" and sfuv!=""):
+        if (snuv < 1000) and (sfuv < 1000):
+            rows_to_drop.append(i)
+    elif (gnuv!="" and gfuv!="") and (snuv=="" and sfuv==""):
+        if (gnuv < 1000) and (gfuv < 1000):
+            rows_to_drop.append(i)
+    else:
+        if (gnuv < 1000) and (gfuv < 1000) and (snuv < 1000) and (sfuv < 1000):
+            rows_to_drop.append(i)
+'''
+names_to_drop = []
+for i in range(len(picklelist)):
+    if picklelist[i][1] < 1000 and picklelist[i][2] < 1000:
+        names_to_drop.append(picklelist[i][0])
+
+rows_to_drop =[]
+#If source has only SDSS designation & in names_to_drop , add index to rows_to_drop
+sdss_only = np.where( (output_df['GaiaDesignation'] == '') & (output_df['SDSSDesignation'] != '') )[0]
+print(len(sdss_only))
 for idx in sdss_only:
-    if not os.path.isfile('/home/dmrowan/WhiteDwarfs/GALEXphot/fits/'+str(output_df['SDSSDesignation'][idx])+'.fits'):
+    if output_df['SDSSDesignation'][idx] in names_to_drop:
         rows_to_drop.append(idx)
 
+#If a source has only GAIA designation & in names_to_drop, add index to rows_to_drop
+
+gaia_only = np.where( (output_df['GaiaDesignation'] != '') & (output_df['SDSSDesignation'] == '') )[0]
+for idx in gaia_only:
+    if 'GaiaDR2-'+"".join(list(output_df['GaiaDesignation'][idx])[9:]) in names_to_drop:    
+        rows_to_drop.append(idx)
+
+#CHECK TEST THING
+
+pickle_gaia_names = []
+pickle_gaia_expt = []
+for idx in range(len(picklelist_names)):
+    if picklelist_names[idx][0] =='G'
+    pickle_gaia_names.append(picklelist_names[idx])
+    pickle_gaia_expt.append(picklelist_expt[idx])
+
+pickle_gaia_names_2 = [ name[0:4]+" " + name[4:7]+" "+name[8:] ofr name in pickle_gaia_names ] 
+
+for gaianame in gaiacatalog['designation']:
+    i = np.where(np.array(pickle_gaia_names_2) == gaianame)[0]
+    if len(i) != 0:
+        idx = i[0]
+        if (pickle_gaia_expt[idx][0] < 1000) and (pickle_gaia_expt[idx][1] < 1000):
+        print(gaianame, pickle_gaia_names_2[idx], pickle_gaia_expt[idx])
+
+
+
+#If a source has both and both designations are in names_to_drop, add index to rows_to_drop
+gaia_and_sdss = np.where( (output_df['GaiaDesignation'] != '') & (output_df['SDSSDesignation'] != '') )[0]
+for idx in gaia_and_sdss:
+    if ('GaiaDR2-'+"".join(list(output_df['GaiaDesignation'][idx])[9:]) in names_to_drop) and (output_df['SDSSDesignation'][idx] in names_to_drop):
+        rows_to_drop.append(idx)
+'''
+
+print("Dropping " + str(len(rows_to_drop)) + " rows due to exposure time limitation")
 output_df = output_df.drop(index=rows_to_drop)
 
+
+
 #Save to CSV
-output_df.to_csv("BigCatalog.csv")
+output_df.to_csv("BigCatalog_new.csv", index=False)

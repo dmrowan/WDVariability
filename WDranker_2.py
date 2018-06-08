@@ -8,24 +8,15 @@ from astropy import log
 from os import path
 from glob import glob
 import astropy
+import ipdb
 import pandas as pd
 from astropy.stats import LombScargle
 import heapq
 import matplotlib.image as mpimg
 import subprocess
 import warnings
-
 import importlib
 gu = importlib.import_module('gPhoton.gphoton_utils')
-
-#import gPhoton.gphoton_utils as gu
-
-#from gPhoton import gphoton_utils as gu
-
-#from gPhoton import gphoton_utils
-#gu = gphoton_utils
-
-
 #Dom Rowan REU 2018
 
 warnings.simplefilter("once")
@@ -93,7 +84,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     assert(band is not None)
     print(source, band)
 
-    bandcolors = {'NUV':'purple', 'FUV':'orange'}
+    bandcolors = {'NUV':'red', 'FUV':'blue'}
 
     alldata = pd.read_csv(csvpath)
     
@@ -105,7 +96,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
     #Fix rows with weird t_means
     #    (some rows have almost zero t_mean, just average t0 and t1 in those rows)
-    idx_tmean_fix = np.where( (alldata['t_mean'] < 1) | (alldata['t_mean'] > 1e15) | (np.isnan(alldata['t_mean'])) )[0]
+    idx_tmean_fix = np.where( (alldata['t_mean'] < 1) | (alldata['t_mean'] > alldata['t1']) | (np.isnan(alldata['t_mean'])) )[0]
     for idx in idx_tmean_fix:
         t0 = alldata['t0'][idx]
         t1 = alldata['t1'][idx]
@@ -131,7 +122,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         c_mag = .25
     else:
         c_mag = 0
-
 
     ###Check if in knownvariable###
     c_known = 0
@@ -171,7 +161,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
         #Fix rows with weird t_mean time
         #   (some rows have almost zero t_mean, just average t0 and t1 in those rows)
-        idx_tmean_fix_other = np.where( (alldata_other['t_mean'] < 1) | (alldata_other['t_mean'] > 1e15) | (np.isnan(alldata_other['t_mean'])) )[0]
+        idx_tmean_fix_other = np.where( (alldata_other['t_mean'] < 1) | (alldata_other['t_mean'] > alldata_other['t1']) | (np.isnan(alldata_other['t_mean'])) )[0]
         for idx in idx_tmean_fix_other:
             t0 = alldata_other['t0'][idx]
             t1 = alldata_other['t1'][idx]
@@ -261,7 +251,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
         cps_bgsub_err = df_reduced['cps_bgsub_err'] / cps_bgsub_median
         t_mean = df_reduced['t_mean']
-        
         #If we have data in the other band, find points corresponding to this exposure group
         #We've already done the relative scale correction (on the entire alldata_other table)
         #First get the indicies corresponding to this group in the other band
@@ -281,14 +270,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
             cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median_red) - 1.0
             cps_bgsub_err_red = df['cps_bgsub_err'][redpoints] / cps_bgsub_median_red
             t_mean_red = df['t_mean'][redpoints]
-
         if len(bluepoints) != 0:
             cps_bgsub_blue = df['cps_bgsub'][bluepoints]
             cps_bgsub_median_blue = np.median(cps_bgsub_blue)
             cps_bgsub_blue = (cps_bgsub_blue / cps_bgsub_median_blue) - 1.0
             cps_bgsub_err_blue = df['cps_bgsub_err'][bluepoints] / cps_bgsub_median_blue
             t_mean_blue = df['t_mean'][bluepoints]
-
         ###Periodogram Creation###
         #Fist do the periodogram of the data
         #if df_number == 7:
@@ -297,8 +284,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         freq, amp = ls.autopower(nyquist_factor=1)
         
         #Periodogram for dither information
-        ls_detrad = LombScargle(df_reduced['t_mean'], df_reduced['detrad'])
+        ls_detrad = LombScargle(t_mean, df_reduced['detrad'])
         freq_detrad, amp_detrad = ls_detrad.autopower(nyquist_factor=1)
+
+        #Periodogram for expt information
+        ls_expt = LombScargle(t_mean, df_reduced['exptime'])
+        freq_expt, amp_expt = ls_expt.autopower(nyquist_factor=1)
 
         #Identify statistically significant peaks
         top5amp = heapq.nlargest(5, amp)
@@ -363,6 +354,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
             autocorr_result = np.zeros(numberofzeros)
 
         '''
+        #I removed this all for now because the autocorr wasn't that useful, and because it brings up alot of errors in test cases
         ac_x = range(len(autocorr_result))
         
         popt, pcov = curve_fit(fitfunc, ac_x, autocorr_result)
@@ -402,15 +394,19 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         #Convert to JD here as well
         jd_t_mean = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean ]
         ax[0][0].errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
-        if len(redpoints) != 0:
+        ax[0][0].axhline(alpha=.3, ls='dotted', color=bandcolors[band])
+        if len(redpoints) != 0: #points aren't even red now...
             jd_t_mean_red = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
-            ax[0][0].errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='r', marker='.', ls='', zorder=2, alpha=.5)
-        if len(bluepoints) != 0:
+            ax[0][0].errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+        if len(bluepoints) != 0: #these points aren't blue either...
             jd_t_mean_blue = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
-            ax[0][0].errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='b', marker='.', ls='', zorder=3, alpha=.5)
+            ax[0][0].errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
         if other_band_exists:
+            #introduce offset here
             jd_t_mean_other = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
-            ax[0][0].errorbar(jd_t_mean_other, cps_bgsub_other, yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            ax[0][0].errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            ax[0][0].axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
+
         ax[0][0].set_title(band+' light curve')
         ax[0][0].set_xlabel('Time JD')
         ax[0][0].set_ylabel('Variation in CPS')
@@ -428,6 +424,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         #Subplot for periodogram
         ax[0][1].plot(freq, amp, 'g-', label='Data')
         ax[0][1].plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
+        ax[0][1].plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
         ax[0][1].set_title(band+' Periodogram')
         ax[0][1].set_xlabel('Freq [Hz]')
         ax[0][1].set_ylabel('Amplitude')
@@ -623,7 +620,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     plt.close('all')
     #Call the pdfcreator script
     subprocess.run(['PDFcreator', '-s', source, '-b', band])
-
 if __name__ == '__main__':
     
     desc="""
