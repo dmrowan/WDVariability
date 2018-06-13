@@ -54,8 +54,10 @@ def readASASSN(path):
 def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     #Path assertions
     assert(os.path.isfile(csvname))
-    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/BigCatalog.csv"
+    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/BigCatalog_Final.csv"
     assert(os.path.isfile(catalogpath))
+    sigmamag_path = "Catalog/SigmaMag.csv"
+    assert(os.path.isfile(sigmamag_path))
     assert(os.path.isdir('PDFs'))
     assert(os.path.isdir('PNGs'))
     assert(os.path.isdir('Output'))
@@ -88,8 +90,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
     alldata = pd.read_csv(csvpath)
     
-    #Drop rows with > 10e10 in cps, cps_err
-    idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) )[0]
+    #Drop rows with > 10e10 in cps, cps_err, cps < .5
+    idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) )[0]
     if len(idx_high_cps) != 0:
         alldata = alldata.drop(index = idx_high_cps)
         alldata = alldata.reset_index(drop=True)
@@ -112,7 +114,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         flaggedratio = float(n_flagged) / float(n_rows)
 
     ###Apparent Magnitude### - could also be done using conversion from flux 
-    m_ab = np.mean(alldata['mag_bgsub'])
+    m_ab = np.nanmean(alldata['mag_bgsub'])
+    sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
     #Calculate c_mag based on ranges:
     if m_ab < 16:
         c_mag = 1
@@ -122,6 +125,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         c_mag = .25
     else:
         c_mag = 0
+
+    magdic = {"mag":[m_ab], "sigma":[sigma_mag_all], "weight":[1]}
 
     ###Check if in knownvariable###
     c_known = 0
@@ -151,7 +156,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         print("Generating additional LC data for " + band_other + " band")
         alldata_other = pd.read_csv(csvpath_other)
         #Drop bad rows, flagged rows
-        idx_high_cps_other = np.where( (abs(alldata_other['cps_bgsub']) > 10e10) | (alldata_other['cps_bgsub_err'] > 10e10) )[0]
+        idx_high_cps_other = np.where( (abs(alldata_other['cps_bgsub']) > 10e10) | (alldata_other['cps_bgsub_err'] > 10e10) | (alldata_other['counts'] < 1) )[0]
         #Not interested in looking at red/blue points for other band
             #drop flagged, expt < 10
         idx_other_flagged = np.where( alldata_other['flags'] != 0 | (alldata_other['exptime'] < 10) )[0]
@@ -245,6 +250,14 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         if (df_reduced['cps_bgsub'][df_reduced.index[-1]] - np.mean(df['cps_bgsub'])) > 3*stdev:
             df_reduced = df_reduced.drop(index=df_reduced.index[-1])
 
+        #Grab magnitude information
+        df_m_ab = np.nanmean(df_reduced['mag_bgsub'])
+        df_sigma_mag = np.nanstd( (df_reduced['mag_bgsub_err_1'] + df_reduced['mag_bgsub_err_2'])/2.0 )
+
+        magdic["mag"].append(df_m_ab)
+        magdic["sigma"].append(df_sigma_mag)
+        magdic["weight"].append(.25)
+
         #Get the cps_bgsub, error and time columns and make correction for relative scales
         cps_bgsub = df_reduced['cps_bgsub']
         cps_bgsub_median = np.median(cps_bgsub)
@@ -304,7 +317,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
             upperbound = f + prange
             bad_detrad.append( (lowerbound, upperbound) )
 
-        #Calculate false alamrm thresholds
+        #Calculate false alarm thresholds
         probabilities = [fap]
         faplevels = ls.false_alarm_level(probabilities)
 
@@ -497,15 +510,25 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
+    #Get alternate designation if it exists
+    if source[0].isdigit():
+        sdss_source=source
+        idx_sdss = np.where(bigcatalog['SDSSDesignation'] == source)[0]
+        gaia_source = bigcatalog['GaiaDesignation'][idx_sdss]
+        variability = bigcatalog['variability'][idx_sdss]
+        binarity = bigcatalog['binarity'][idx_sdss]
+        hasdisk = bigcatalog['hasdisk'][idx_sdss]
+        mwdd_type = bigcatalog['mwdd_type'[idx_sdss]
+    elif source[0] == "G"
+        gaia_source=source
+        idx_gaia = np.where(bigcatalog['GaiaDesignation'] == source)[0]
+        sdss_source = bigcatalog['SDSSDesignation'][idx_gaia]
+        variability = bigcatalog['variability'][idx_gaia]
+        binarity = bigcatalog['binarity'][idx_gaia]
+        hasdisk = bigcatalog['hasdisk'][idx_gaia]
+        mwdd_type = bigcatalog['mwdd_type'][idx_gaia]
 
-    idx_sdss = np.where(bigcatalog['SDSSDesignation'] == source)[0]
-    in_sdss = (len(idx_sdss) != 0)
-
-    #idx_gaia = np.where(bigcatalog['GaiaDesignation'] == csvpath ???
-    #in_gaia = (len(idx_gaia) != 0)
-
-    #assert( not(in_sdss and in_gaia) )
-    #If catalog to query does not exist, make one
+    #Query Simbad Catalog
     if not os.path.isfile("Catalog/AllCatalog_Simbad.csv"):
         print("Creating catalog")
         subprocess.run(["WDsearch"])
@@ -513,7 +536,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     #Read in Simbad catalog
     df_simbad = pd.read_csv("Catalog/AllCatalog_Simbad.csv")
     idx_simbad = np.where(df_simbad["SourceName"] == source)[0]
-    simbad_name = df_simbad["SimbadName"][idx_simbad]
+    if len(idx_simbad) > 0:
+        simbad_name = df_simbad["SimbadName"][idx_simbad]
+        simbad_types = df_simbad["SimbadType2"][idx_simbad]
+    else:
+        simbad_name = None
+        simbad_types = None
     #Read in SDSS info
     df_sdss = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/SDSSCatalog.csv")
     idx_sdss = np.where(df_sdss['SDSS-J'] == source)[0]
@@ -531,7 +559,9 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv", index=False)
 
 
-    ###Generate multiplage pdf###
+    #####Generate multiplage pdf#####
+
+    ###Page 1###
     #Drop flagged rows from alldata
     alldata_flag_idx = np.where( alldata['flags'] !=0)[0]
     alldata = alldata.drop(index = alldata_flag_idx)
@@ -613,12 +643,89 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
                 "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
                 )
     
-    allsaveimagepath = str("PNGs/"+source+"-"+band+"all"+".png")
-    figall.savefig(allsaveimagepath)
+    all1saveimagepath = str("PNGs/"+source+"-"+band+"all1"+".png")
+    figall.savefig(all1saveimagepath)
     #Clear figure
     figall.clf()
     plt.close('all')
-    #Call the pdfcreator script
+
+    ###Page 2### Magnitude sigma plot and Source information
+    #Get info from sigmamag csv file (from WDsigmamag)
+    figall2, axall2 = plt.subplots(2,1,figsize=(16,12))
+    df_sigmamag = pd.read_csv(sigmamag_path)
+    df_alphas = df_sigmamag['weight']
+    rgb_1 = np.zeros((len(df_alphas),4))
+    rgb_1[:,3] = df_alphas
+    axall2[0].scatter(df_sigmamag['m_ab'], df_sigmamag['sigma_m'], color=rgb_1, zorder=2)
+
+    #Get information from magdic
+    sourcemags = np.array(magdic['mag'])
+    sourcesigmas =np.array(magdic['sigma'])
+    sourcealphas = np.array(magdic['weight'])
+    #Make lists for arrow points (above .3 sigma)
+    arrow_mag = []
+    arrow_sigma = []
+    arrow_alpha = []
+    idx_arrow = np.where(sourcesigmas > .3)[0]
+    for idx in idx_arrow:
+        arrow_mag.append(sourcemags[idx])
+        arrow_sigma.append(.29)
+        arrow_alpha.append(sourcealphas[idx])
+    #Drop these indicies from the source arrays
+    sourcemags = np.delete(sourcemags, idx_arrow)
+    sourcesigmas = np.delete(sourcesigmas, idx_arrow)
+    sourcealphas = np.delete(sourcealphas, idx_arrow)
+
+    #Make color code information
+    rgb_2 = np.zeros((len(sourcealphas), 4))
+    rgb_2[:,0] = 1.0
+    rgb_2[:,3] = sourcealphas
+    
+    #Make color code information for arrow
+    rgb_arrow = np.zeros((len(arrow_alpha),4))
+    rgb_arrow[:,0] = .3
+    rgb_arrow[:,1] = .7
+    rgb_arrow[:,2] = 1.0
+    rgb_arrow[:,3] = arrow_alpha
+
+    axall2[0].scatter(sourcemags, sourcesigmas, color=rgb_2, zorder=3)
+    axall2[0].scatter(arrow_mag, arrow_sigma, color=rgb_arrow, marker="^", zorder = 1)
+    axall2[0].set_title("Sigma as a function of AB mag")
+    axall2[0].set_xlabel("AB mag")
+    axall2[0].set_ylabel("Sigma")
+    axall2[0].set_ylim(ymin=0)
+    axall2[0].set_ylim(ymax=.3)
+
+    ###Information for text subplot
+    axall2[1].set_ylim(ymin=0, ymax=1)
+    if c_known == 0:
+        formatknown = ''
+    else:
+        formatknown = 'y'
+    information = """
+    SDSS source name: {0}
+    Gaia source name: {1}
+    Other Designations: {2} \n
+    Known Variable: {3} \n
+    ABMagnitude: {4} \n
+    SIMBAD Designation: {5}
+    SIMBAD Type list: {6} \n
+    MWDD Type: {7} \n
+    Known Variability (MWDD): {8} \n
+    Known Binarity: {9} \n
+    Known Disk: {10} \n
+    """.format(sdss_source, gaia_source, band, formatknown, str(round(m_ab,2))simbad_name, simbad_types, mwdd_type, variability, binarity, hasdisk)
+    axall2[1].axis('off')
+    axall2[1].text(0, .5, information, size=20)
+
+    all2saveimagepath = str("PNGs/"+source+"-"+band+"all2"+".png")
+    figall2.savefig(all2saveimagepath)
+
+    #Clear figure
+    figall.clf()
+    plt.close('all')
+
+    #Generate PDF
     subprocess.run(['PDFcreator', '-s', source, '-b', band])
 if __name__ == '__main__':
     

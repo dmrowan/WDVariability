@@ -13,6 +13,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 import _pickle as pickle
 import ipdb
+from progressbar import ProgressBar
 #Dom Rowan REU 2018
 
 desc = """
@@ -22,276 +23,413 @@ parser = argparse.ArgumentParser(description=desc)
 parser.add_argument("--sep", help="Seperation threshold for crosschecking, arcseconds", type=float, default=5)
 args= parser.parse_args()
 
-#Lists to build
-gaia_designation = []
-gaia_ra = []
-gaia_dec = []
-gaia_parallax = []
-gaia_parallax_error = []
-gaia_g_mean_flux = []
-gaia_g_mean_flux_error = []
-gaia_g_mean_mag = []
-gaia_bp_mean_flux = []
-gaia_bp_mean_flux_error = []
-gaia_bp_mean_mag = []
-gaia_rp_mean_flux = []
-gaia_rp_mean_flux_error = []
-gaia_rp_mean_mag = []
-gaia_nuv_time = []
-gaia_fuv_time = []
 
-
-sdss_designation = []
-sdss_u = []
-sdss_su = []
-sdss_g = []
-sdss_sg = []
-sdss_r = []
-sdss_sr = []
-sdss_i = []
-sdss_si = []
-sdss_z = []
-sdss_sz = []
-sdss_dtype = []
-sdss_nuv_time = []
-sdss_fuv_time = []
-
-
-with open('/home/dmrowan/WhiteDwarfs/checked.pickle', 'rb') as p:
+#Read in pickle information
+with open('/home/dmrowan/WhiteDwarfs/Catalogs/checked.pickle', 'rb') as p:
     picklelist = pickle.load(p)
 
 picklelist_names = [ pic[0] for pic in picklelist ]
+
+#Initialize dictionary
+output_dic = {
+        "GaiaDesignation":[],
+        "SDSSDesignation":[],
+        "MWDDDesignation":[], 
+        "ATLASDesignation":[],
+        "ra":[],
+        "dec":[],
+        "gaia_parallax":[],
+        "gaia_parallax_error":[],
+        "gaia_g_mean_flux":[],
+        "gaia_g_mean_flux_error":[],
+        "gaia_g_mean_mag":[],
+        "gaia_bp_mean_flux":[],
+        "gaia_bp_mean_flux_error":[],
+        "gaia_bp_mean_mag":[],
+        "gaia_rp_mean_flux":[],
+        "gaia_rp_mean_flux_error":[],
+        "gaia_rp_mean_mag":[],
+
+        "sdss_u":[],
+        "sdss_su":[],
+        "sdss_g":[],
+        "sdss_sg":[],
+        "sdss_r":[],
+        "sdss_sr":[],
+        "sdss_i":[],
+        "sdss_si":[],
+        "sdss_z":[],
+        "sdss_sz":[],
+        "sdss_dtype":[],
+
+        "gaia_nuv_time":[],
+        "gaia_fuv_time":[],
+        "sdss_nuv_time":[],
+        "sdss_fuv_time":[],
+
+        "mwdd_type":[],
+        "variability":[],
+        "binarity":[], 
+        "hasdisk":[],
+        "mwdd_nuv_time":[],
+        "mwdd_fuv_time":[],
+
+        "atlas_nuv_time":[],
+        "atlas_fuv_time":[],
+}
 
 SDSSpath = "/home/dmrowan/WhiteDwarfs/Catalogs/SDSSCatalog.csv"
 df_SDSS = pd.read_csv("SDSSCatalog.csv")
 df_SDSS['ra'] = df_SDSS['SDSS-J'].str[0:2]+":"+ df_SDSS['SDSS-J'].str[2:4]+":"+ df_SDSS['SDSS-J'].str[4:9]
 df_SDSS['dec'] = df_SDSS['SDSS-J'].str[9:12] + ":" + df_SDSS['SDSS-J'].str[12:14] + ":" + df_SDSS['SDSS-J'].str[14:]
 
-df_GAIA = pd.read_csv("GaiaWDcatalog.csv")
+df_GAIA = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/GaiaWDcatalog.csv")
 gaia_catalog = SkyCoord(ra=list(df_GAIA['ra'])*u.degree, dec=list(df_GAIA['dec'])*u.degree)
-for i in range(len(df_SDSS['ra'])):
+print("Grabbing SDSS sources, adding GAIA info if catalog match exists")
+pbar1 = ProgressBar()
+for i in pbar1(range(len(df_SDSS['ra']))):
     stringcoord = df_SDSS['ra'][i] + " " + df_SDSS['dec'][i]
     c = SkyCoord(stringcoord, unit=(u.hour, u.deg))
     idx, d2d, d3d = c.match_to_catalog_sky(gaia_catalog)
     if d2d < args.sep*u.arcsec:
-        print("SDSS source " + stringcoord + " found in GAIA catalog")
         #Grab information from GAIA catalog at index idx
         idx = int(idx)
-        gaia_designation.append(df_GAIA['designation'][idx])
-        gaia_ra.append(df_GAIA['ra'][idx])
-        gaia_dec.append(df_GAIA['dec'][idx])
-        gaia_parallax.append(df_GAIA['parallax'][idx] * 10e3)
-        gaia_parallax_error.append(df_GAIA['parallax_error'][idx] * 10e3)
-        gaia_g_mean_flux.append(df_GAIA['phot_g_mean_flux'][idx])
-        gaia_g_mean_flux_error.append(df_GAIA['phot_g_mean_flux_error'][idx])
-        gaia_g_mean_mag.append(df_GAIA['phot_g_mean_mag'][idx])
-        gaia_bp_mean_flux.append(df_GAIA['phot_bp_mean_flux'][idx])
-        gaia_bp_mean_flux_error.append(df_GAIA['phot_bp_mean_flux_error'][idx])
-        gaia_bp_mean_mag.append(df_GAIA['phot_bp_mean_mag'][idx])
-        gaia_rp_mean_flux.append(df_GAIA['phot_rp_mean_flux'][idx])
-        gaia_rp_mean_flux_error.append(df_GAIA['phot_rp_mean_flux_error'][idx])
-        gaia_rp_mean_mag.append(df_GAIA['phot_rp_mean_mag'][idx])
+        output_dic['GaiaDesignation'].append(df_GAIA['designation'][idx])
+        output_dic['ra'].append(df_GAIA['ra'][idx])
+        output_dic['dec'].append(df_GAIA['dec'][idx])
+        output_dic['gaia_parallax'].append(df_GAIA['parallax'][idx] * 10e3)
+        output_dic['gaia_parallax_error'].append(df_GAIA['parallax_error'][idx] * 10e3)
+        output_dic['gaia_g_mean_flux'].append(df_GAIA['phot_g_mean_flux'][idx])
+        output_dic['gaia_g_mean_flux_error'].append(df_GAIA['phot_g_mean_flux_error'][idx])
+        output_dic['gaia_g_mean_mag'].append(df_GAIA['phot_g_mean_mag'][idx])
+        output_dic['gaia_bp_mean_flux'].append(df_GAIA['phot_bp_mean_flux'][idx])
+        output_dic['gaia_bp_mean_flux_error'].append(df_GAIA['phot_bp_mean_flux_error'][idx])
+        output_dic['gaia_bp_mean_mag'].append(df_GAIA['phot_bp_mean_mag'][idx])
+        output_dic['gaia_rp_mean_flux'].append(df_GAIA['phot_rp_mean_flux'][idx])
+        output_dic['gaia_rp_mean_flux_error'].append(df_GAIA['phot_rp_mean_flux_error'][idx])
+        output_dic['gaia_rp_mean_mag'].append(df_GAIA['phot_rp_mean_mag'][idx])
         pickleidxgaia = np.where(np.array(picklelist_names) == 'GaiaDR2-'+"".join(list(df_GAIA['designation'][idx])[9:]))[0]
-        if len(pickleidx > 0):
-            gaia_nuv_time.append(picklelist[pickleidxgaia[0]][1])
-            gaia_fuv_time.append(picklelist[pickleidxgaia[0]][2])
+        if len(pickleidxgaia) > 0:
+            output_dic['gaia_nuv_time'].append(picklelist[pickleidxgaia[0]][1])
+            output_dic['gaia_fuv_time'].append(picklelist[pickleidxgaia[0]][2])
         else:
-            gaia_nuv_time.append("")
-            gaia_fuv_time.append("")
+            output_dic['gaia_nuv_time'].append(float("NaN"))
+            output_dic['gaia_fuv_time'].append(float("NaN"))
     else:
-        #print("SDSS source " + stringcoord + " not found in GAIA catalog")
-        gaia_designation.append("")
-        gaia_ra.append("")
-        gaia_dec.append("")
-        gaia_parallax.append("")
-        gaia_parallax_error.append("")
-        gaia_g_mean_flux.append("")
-        gaia_g_mean_flux_error.append("")
-        gaia_g_mean_mag.append("")
-        gaia_bp_mean_flux.append("")
-        gaia_bp_mean_flux_error.append("")
-        gaia_bp_mean_mag.append("")
-        gaia_rp_mean_flux.append("")
-        gaia_rp_mean_flux_error.append("")
-        gaia_rp_mean_mag.append("")
-        gaia_nuv_time.append("")
-        gaia_fuv_time.append("")
+        output_dic['GaiaDesignation'].append("")
+        output_dic['gaia_parallax'].append("")
+        output_dic['gaia_parallax_error'].append("")
+        output_dic['gaia_g_mean_flux'].append("")
+        output_dic['gaia_g_mean_flux_error'].append("")
+        output_dic['gaia_g_mean_mag'].append("")
+        output_dic['gaia_bp_mean_flux'].append("")
+        output_dic['gaia_bp_mean_flux_error'].append("")
+        output_dic['gaia_bp_mean_mag'].append("")
+        output_dic['gaia_rp_mean_flux'].append("")
+        output_dic['gaia_rp_mean_flux_error'].append("")
+        output_dic['gaia_rp_mean_mag'].append("")
+        output_dic['gaia_nuv_time'].append(float('NaN'))
+        output_dic['gaia_fuv_time'].append(float('NaN'))
         
+        #Turn SDSS coords into decimal degrees
+        output_dic['ra'].append(c.ra.degree)
+        output_dic['dec'].append(c.dec.degree)
+
     #SDSS information
-    sdss_designation.append(df_SDSS['SDSS-J'][i])
-    sdss_u.append(df_SDSS['u'][i])
-    sdss_su.append(df_SDSS['su'][i])
-    sdss_g.append(df_SDSS['g'][i])
-    sdss_sg.append(df_SDSS['sg'][i])
-    sdss_r.append(df_SDSS['r'][i])
-    sdss_sr.append(df_SDSS['sr'][i])
-    sdss_i.append(df_SDSS['i'][i])
-    sdss_si.append(df_SDSS['si'][i])
-    sdss_z.append(df_SDSS['z'][i])
-    sdss_sz.append(df_SDSS['sz'][i])
-    sdss_dtype.append(df_SDSS['dtype'][i])
+    output_dic['SDSSDesignation'].append(df_SDSS['SDSS-J'][i])
+    output_dic['sdss_su'].append(df_SDSS['u'][i])
+    output_dic['sdss_su'].append(df_SDSS['su'][i])
+    output_dic['sdss_g'].append(df_SDSS['g'][i])
+    output_dic['sdss_sg'].append(df_SDSS['sg'][i])
+    output_dic['sdss_r'].append(df_SDSS['r'][i])
+    output_dic['sdss_sr'].append(df_SDSS['sr'][i])
+    output_dic['sdss_i'].append(df_SDSS['i'][i])
+    output_dic['sdss_si'].append(df_SDSS['si'][i])
+    output_dic['sdss_z'].append(df_SDSS['z'][i])
+    output_dic['sdss_sz'].append(df_SDSS['sz'][i])
+    output_dic['sdss_dtype'].append(df_SDSS['dtype'][i])
 
     #Get expt info from pickle
-    pickleidx = np.where( np.array(picklelist_names) == df_SDSS['SDSS-J'][i] )[0]
-    if len(pickleidx > 0):
-        sdss_nuv_time.append(picklelist[pickleidx[0]][1])
-        sdss_fuv_time.append(picklelist[pickleidx[0]][2])
+    pickleidxsdss = np.where( np.array(picklelist_names) == df_SDSS['SDSS-J'][i] )[0]
+    if len(pickleidxsdss) > 0:
+        output_dic['sdss_nuv_time'].append(picklelist[pickleidxsdss[0]][1])
+        output_dic['sdss_fuv_time'].append(picklelist[pickleidxsdss[0]][2])
     else:
-        sdss_nuv_time.append("")
-        sdss_fuv_time.append("")
+        output_dic['sdss_nuv_time'].append(float('NaN'))
+        output_dic['sdss_fuv_time'].append(float('NaN'))
 
 #Now loop through sources in the gaia catalog
-for i in range(len(df_GAIA['designation'])):
+print("Looping through GAIA sources not yet in catalog")
+pbar2 = ProgressBar()
+for i in pbar2(range(len(df_GAIA['designation']))):
     #Check if they already exist (i.e. also in sdss)
-    if not df_GAIA['designation'][i] in gaia_designation:
-        print(str(df_GAIA['designation'][i]) + " only in GAIA")
-        gaia_designation.append(df_GAIA['designation'][i])
-        gaia_ra.append(df_GAIA['ra'][i])
-        gaia_dec.append(df_GAIA['dec'][i])
-        gaia_parallax.append(df_GAIA['parallax'][i] * 10e3)
-        gaia_parallax_error.append(df_GAIA['parallax_error'][i] * 10e3)
-        gaia_g_mean_flux.append(df_GAIA['phot_g_mean_flux'][i])
-        gaia_g_mean_flux_error.append(df_GAIA['phot_g_mean_flux_error'][i])
-        gaia_g_mean_mag.append(df_GAIA['phot_g_mean_mag'][i])
-        gaia_bp_mean_flux.append(df_GAIA['phot_bp_mean_flux'][i])
-        gaia_bp_mean_flux_error.append(df_GAIA['phot_bp_mean_flux_error'][i])
-        gaia_bp_mean_mag.append(df_GAIA['phot_bp_mean_mag'][i])
-        gaia_rp_mean_flux.append(df_GAIA['phot_rp_mean_flux'][i])
-        gaia_rp_mean_flux_error.append(df_GAIA['phot_rp_mean_flux_error'][i])
-        gaia_rp_mean_mag.append(df_GAIA['phot_rp_mean_mag'][i])
+    if not df_GAIA['designation'][i] in output_dic['GaiaDesignation']:
+        output_dic['GaiaDesignation'].append(df_GAIA['designation'][i])
+        output_dic['ra'].append(df_GAIA['ra'][i])
+        output_dic['dec'].append(df_GAIA['dec'][i])
+        output_dic['gaia_parallax'].append(df_GAIA['parallax'][i] * 10e3)
+        output_dic['gaia_parallax_error'].append(df_GAIA['parallax_error'][i] * 10e3)
+        output_dic['gaia_g_mean_flux'].append(df_GAIA['phot_g_mean_flux'][i])
+        output_dic['gaia_g_mean_flux_error'].append(df_GAIA['phot_g_mean_flux_error'][i])
+        output_dic['gaia_g_mean_mag'].append(df_GAIA['phot_g_mean_mag'][i])
+        output_dic['gaia_bp_mean_flux'].append(df_GAIA['phot_bp_mean_flux'][i])
+        output_dic['gaia_bp_mean_flux_error'].append(df_GAIA['phot_bp_mean_flux_error'][i])
+        output_dic['gaia_bp_mean_mag'].append(df_GAIA['phot_bp_mean_mag'][i])
+        output_dic['gaia_rp_mean_flux'].append(df_GAIA['phot_rp_mean_flux'][i])
+        output_dic['gaia_rp_mean_flux_error'].append(df_GAIA['phot_rp_mean_flux_error'][i])
+        output_dic['gaia_rp_mean_mag'].append(df_GAIA['phot_rp_mean_mag'][i])
         pickleidxgaia = np.where(np.array(picklelist_names) == 'GaiaDR2-'+"".join(list(df_GAIA['designation'][i])[9:]))[0]
-        if len(pickleidxgaia > 0):
-            gaia_nuv_time.append(picklelist[pickleidxgaia[0]][1])
-            gaia_fuv_time.append(picklelist[pickleidxgaia[0]][2])
+        if len(pickleidxgaia) > 0:
+            output_dic['gaia_nuv_time'].append(picklelist[pickleidxgaia[0]][1])
+            output_dic['gaia_fuv_time'].append(picklelist[pickleidxgaia[0]][2])
         else:
-            gaia_nuv_time.append("")
-            gaia_fuv_time.append("")
+            output_dic['gaia_nuv_time'].append(float("NaN"))
+            output_dic['gaia_fuv_time'].append(float("NaN"))
 
-        sdss_designation.append("")
-        sdss_u.append("")
-        sdss_su.append("")
-        sdss_g.append("")
-        sdss_sg.append("")
-        sdss_r.append("")
-        sdss_sr.append("")
-        sdss_i.append("")
-        sdss_si.append("")
-        sdss_z.append("")
-        sdss_sz.append("")
-        sdss_dtype.append("")
-        sdss_nuv_time.append("")
-        sdss_fuv_time.append("")
+        output_dic['SDSSDesignation'].append("")
+        output_dic['sdss_u'].append("")
+        output_dic['sdss_su'].append("")
+        output_dic['sdss_g'].append("")
+        output_dic['sdss_sg'].append("")
+        output_dic['sdss_r'].append("")
+        output_dic['sdss_sr'].append("")
+        output_dic['sdss_i'].append("")
+        output_dic['sdss_si'].append("")
+        output_dic['sdss_z'].append("")
+        output_dic['sdss_sz'].append("")
+        output_dic['sdss_dtype'].append("")
+        output_dic['sdss_nuv_time'].append(float("NaN"))
+        output_dic['sdss_fuv_time'].append(float("NaN"))
+
+#Montreal WD survey
+df_MWDD = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/MWDD-export.csv")
+#Grab expt from pickle
+mwdd_nuv = []
+mwdd_fuv = []
+for wdid in df_MWDD['wdid']:
+    wdid = ''.join(wdid.split())
+    pickleidxmwdd = np.where(np.array(picklelist_names) == wdid)[0]
+    if len(pickleidxmwdd > 0):
+        wdid_nuv = picklelist[pickleidxmwdd[0]][1]
+        wdid_fuv = picklelist[pickleidxmwdd[0]][2]
+    else:
+        wdid_nuv = 0
+        wdid_fuv = 0
+    
+    mwdd_nuv.append(wdid_nuv)
+    mwdd_fuv.append(wdid_fuv)
+
+df_MWDD['nuv_time'] = mwdd_nuv
+df_MWDD['fuv_time'] = mwdd_fuv
+
+#Drop rows where expt < 1000 in both bands
+MWDD_expt_drop = np.where( (df_MWDD['nuv_time'] < 1000) & (df_MWDD['fuv_time'] < 1000) )[0]
+print("Dropping {0} rows in MWDD for low exposure out of a total {1} rows".format(str(len(MWDD_expt_drop)), str(len(df_MWDD['wdid']))))
+df_MWDD = df_MWDD.drop(index=MWDD_expt_drop)
+df_MWDD = df_MWDD.reset_index(drop=True)
+
+#Make conversion to deg for ra and dec
+ra_converted = []
+dec_converted = []
+for i in range(len(df_MWDD['icrsra'])):
+    c1 = SkyCoord(str(df_MWDD['icrsra'][i] + " " + df_MWDD['icrsdec'][i]), unit=(u.hour, u.deg))
+    ra_converted.append(c1.ra.deg)
+    dec_converted.append(c1.dec.deg)
+
+df_MWDD['ra'] = ra_converted
+df_MWDD['dec'] = dec_converted
+mwdd_catalog = SkyCoord(ra=list(df_MWDD['ra'])*u.degree, dec=list(df_MWDD['dec'])*u.degree)
+
+#Go through all sources currently in outputdic
+#If it matches up with source in MWDD, add info 
+print("Adding MWDD info for current sources in catalog where match exists")
+pbar3 = ProgressBar()
+for i in pbar3(range(len(output_dic['SDSSDesignation']))):
+    c1 = SkyCoord(output_dic['ra'][i]*u.degree, output_dic['dec'][i]*u.degree)
+    idx, d2d, d3d = c1.match_to_catalog_sky(mwdd_catalog)
+    #idx refers to place in df_mwdd that matches with c1 from output_dic
+    #If seperation < threshold
+    if d2d < args.sep*u.arcsec:
+        #ipdb.set_trace()
+        idx = int(idx)
+        output_dic['MWDDDesignation'].append(df_MWDD['wdid'][idx])
+        output_dic['mwdd_type'].append(df_MWDD['spectype'][idx])
+        output_dic['variability'].append(df_MWDD['variability'][idx])
+        output_dic['binarity'].append(df_MWDD['binarity'][idx])
+        output_dic['hasdisk'].append(df_MWDD['hasdisk'][idx])
+        output_dic['mwdd_nuv_time'].append(df_MWDD['nuv_time'][idx])
+        output_dic['mwdd_fuv_time'].append(df_MWDD['fuv_time'][idx])
+    else:
+        output_dic['MWDDDesignation'].append("")
+        output_dic['mwdd_type'].append("")
+        output_dic['variability'].append("")
+        output_dic['binarity'].append("")
+        output_dic['hasdisk'].append("")
+        output_dic['mwdd_nuv_time'].append(float("NaN"))
+        output_dic['mwdd_fuv_time'].append(float("NaN"))
+
+#Now need to add sources that are new from MWDD (not in GAIA or SDSS)
+#These are new rows at the bottom of the dic/table
+print("Adding new sources from MWDD")
+pbar4 = ProgessBar()
+for i in pbar4(range(len(df_MWDD['wdid']))):
+    #Check if they already exist in output
+    if not df_MWDD['wdid'][i] in output_dic['MWDDDesignation']:
+        output_dic['MWDDDesignation'].append(df_MWDD['wdid'][i])
+        output_dic['ra'].append(df_MWDD['ra'][i])
+        output_dic['dec'].append(df_MWDD['dec'][i])
+        output_dic['mwdd_type'].append(df_MWDD['spectype'][i])
+        output_dic['variability'].append(df_MWDD['variability'][i])
+        output_dic['binarity'].append(df_MWDD['binarity'][i])
+        output_dic['hasdisk'].append(df_MWDD['hasdisk'][i])
+        output_dic['mwdd_nuv_time'].append(df_MWDD['nuv_time'][i])
+        output_dic['mwdd_fuv_time'].append(df_MWDD['fuv_time'][i])
+        #Need to add info for other columns that will be empty here
+            #(ATLAS column not generated yet)
+        output_dic['SDSSDesignation'].append("")
+        output_dic['sdss_u'].append("")
+        output_dic['sdss_su'].append("")
+        output_dic['sdss_g'].append("")
+        output_dic['sdss_sg'].append("")
+        output_dic['sdss_r'].append("")
+        output_dic['sdss_sr'].append("")
+        output_dic['sdss_i'].append("")
+        output_dic['sdss_si'].append("")
+        output_dic['sdss_z'].append("")
+        output_dic['sdss_sz'].append("")
+        output_dic['sdss_dtype'].append("")
+        output_dic['sdss_nuv_time'].append(float("NaN"))
+        output_dic['sdss_fuv_time'].append(float("NaN"))
+        output_dic['GaiaDesignation'].append("")
+        output_dic['gaia_parallax'].append("")
+        output_dic['gaia_parallax_error'].append("")
+        output_dic['gaia_g_mean_flux'].append("")
+        output_dic['gaia_g_mean_flux_error'].append("")
+        output_dic['gaia_g_mean_mag'].append("")
+        output_dic['gaia_bp_mean_flux'].append("")
+        output_dic['gaia_bp_mean_flux_error'].append("")
+        output_dic['gaia_bp_mean_mag'].append("")
+        output_dic['gaia_rp_mean_flux'].append("")
+        output_dic['gaia_rp_mean_flux_error'].append("")
+        output_dic['gaia_rp_mean_mag'].append("")
+        output_dic['gaia_nuv_time'].append(float("NaN"))
+        output_dic['gaia_fuv_time'].append(float("NaN"))
 
 
-#Create output dictionary
-output_dic = {
-        "GaiaDesignation":gaia_designation,
-        "SDSSDesignation":sdss_designation,
-        "gaia_ra":gaia_ra,
-        "gaia_dec":gaia_dec,
-        "gaia_parallax":gaia_parallax,
-        "gaia_parallax_error":gaia_parallax_error,
-        "gaia_g_mean_flux":gaia_g_mean_flux,
-        "gaia_g_mean_flux_error":gaia_g_mean_flux_error,
-        "gaia_g_mean_mag":gaia_g_mean_mag,
-        "gaia_bp_mean_flux":gaia_bp_mean_flux,
-        "gaia_bp_mean_flux_error":gaia_bp_mean_flux_error,
-        "gaia_bp_mean_mag":gaia_bp_mean_mag,
-        "gaia_rp_mean_flux":gaia_rp_mean_flux,
-        "gaia_rp_mean_flux_error":gaia_rp_mean_flux_error,
-        "gaia_rp_mean_mag":gaia_rp_mean_mag,
+#ATLAS Catalog Crosslist - same procedure as for MWDD
+df_ATLAS = pd.read_csv('/home/dmrowan/WhiteDwarfs/Catalogs/ATLAS_WDcatalogue.csv')
+#Get expt info from pickle
+atlas_nuv = []
+atlas_fuv = []
+for name in df_ATLAS['ATLASname']:
+    pickleidxatlas = np.where(np.array(picklelist_names) == name)[0]
+    if len(pickleidxatlas > 0):
+        atlas_nuv.append(picklelist[pickleidxatlas[0]][1])
+        atlas_fuv.append(picklelist[pickleidxatlas[0]][2])
+    else:
+        atlas_nuv.append(0)
+        atlas_nuv.append(0)
 
-        "sdss_u":sdss_u,
-        "sdss_su":sdss_su,
-        "sdss_g":sdss_g,
-        "sdss_sg":sdss_sg,
-        "sdss_r":sdss_r,
-        "sdss_sr":sdss_sr,
-        "sdss_i":sdss_i,
-        "sdss_si":sdss_si,
-        "sdss_z":sdss_z,
-        "sdss_sz":sdss_sz,
-        "sdss_dtype":sdss_dtype,
+df_ATLAS['nuv_time'] = atlas_nuv
+df_ATLAS['fuv_time'] = atlas_fuv
 
-        "gaia_NUV_time":gaia_nuv_time,
-        "gaia_FUV_time":gaia_fuv_time,
-        "sdss_NUV_time":sdss_nuv_time,
-        "sdss_FUV_time":sdss_fuv_time,
-}
+#Drop rows with < 1000 s in both expt bands
+ATLAS_expt_drop = np.where( (df_ATLAS['nuv_time'] < 1000) & (df_ATLAS['fuv_time'] < 1000) )[0]
+print("Dropping {} rows in ATLAS for low exposure".format(str(len(ATLAS_expt_drop))))
+df_ATLAS = df_ATLAS.drop(index=ATLAS_expt_drop)
+df_ATLAS = df_ATLAS.reset_index(drop=True)
+
+atlas_catalog = SkyCoord(ra=list(df_ATLAS['ra'])*u.degree, dec=list(df_ATLAS['dec'])*u.degree)
+#First add to existing rows (add info if we match, add nan if we dont)
+print("Adding ATLAS info to existing sources in catalog if match exists")
+pbar5 = ProgressBar()
+for i in pbar5(range(len(output_dic['SDSSDesignation']))):
+    c2 = SkyCoord(output_dic['ra'][i]*u.degree, output_dic['dec'][i]*u.degree)
+    #idx refers to place in df_ATLAS that matches with c2 from output_dic
+    idx, d2d, d3d = c2.match_to_catalog_sky(atlas_catalog)
+    if d2d < args.sep*u.arcsec:
+        idx = int(idx)
+        output_dic['ATLASDesignation'].append(df_ATLAS['ATLASname'][idx])
+        output_dic['atlas_nuv_time'].append(df_ATLAS['nuv_time'][idx])
+        output_dic['atlas_fuv_time'].append(df_ATLAS['fuv_time'][idx])
+    else:
+        output_dic['ATLASDesignation'].append("")
+        output_dic['atlas_nuv_time'].append(float("NaN"))
+        output_dic['atlas_fuv_time'].append(float("NaN"))
+
+#Now add rows for atlas designations that don't yet exist in the output_dic
+print("Adding new sources from ATLAS")
+pbar6 = ProgressBar()
+for i in pbar6(range(len(df_ATLAS['ATLASname']))):
+    if not df_ATLAS['ATLASname'][i] in output_dic['ATLASDesignation']:
+        output_dic['ATLASDesignation'].append(df_ATLAS['ATLASname'][i])
+        output_dic['ra'].append(df_ATLAS['ra'][i])
+        output_dic['dec'].append(df_ATLAS['dec'][i])
+        output_dic['atlas_nuv_time'].append(df_ATLAS['nuv_time'][i])
+        output_dic['atlas_fuv_time'].append(df_ATLAS['fuv_time'][i])
+
+        output_dic['SDSSDesignation'].append("")
+        output_dic['sdss_u'].append("")
+        output_dic['sdss_su'].append("")
+        output_dic['sdss_g'].append("")
+        output_dic['sdss_sg'].append("")
+        output_dic['sdss_r'].append("")
+        output_dic['sdss_sr'].append("")
+        output_dic['sdss_i'].append("")
+        output_dic['sdss_si'].append("")
+        output_dic['sdss_z'].append("")
+        output_dic['sdss_sz'].append("")
+        output_dic['sdss_dtype'].append("")
+        output_dic['sdss_nuv_time'].append(float("NaN"))
+        output_dic['sdss_fuv_time'].append(float("NaN"))
+        output_dic['GaiaDesignation'].append("")
+        output_dic['gaia_parallax'].append("")
+        output_dic['gaia_parallax_error'].append("")
+        output_dic['gaia_g_mean_flux'].append("")
+        output_dic['gaia_g_mean_flux_error'].append("")
+        output_dic['gaia_g_mean_mag'].append("")
+        output_dic['gaia_bp_mean_flux'].append("")
+        output_dic['gaia_bp_mean_flux_error'].append("")
+        output_dic['gaia_bp_mean_mag'].append("")
+        output_dic['gaia_rp_mean_flux'].append("")
+        output_dic['gaia_rp_mean_flux_error'].append("")
+        output_dic['gaia_rp_mean_mag'].append("")
+        output_dic['gaia_nuv_time'].append(float("NaN"))
+        output_dic['gaia_fuv_time'].append(float("NaN"))
+        output_dic['MWDDDesignation'].append("")
+        output_dic['mwdd_type'].append("")
+        output_dic['variability'].append("")
+        output_dic['binarity'].append("")
+        output_dic['hasdisk'].append("")
+        output_dic['mwdd_nuv_time'].append(float("NaN"))
+        output_dic['mwdd_fuv_time'].append(float("NaN"))
+
 
 #Construct df
 output_df = pd.DataFrame(output_dic)
 
 #Drop rows with type other than WD
-non_wd_idx = np.where( (output_df['sdss_dtype'].str[0] != 'D') & (output_df['sdss_dtype'].notnull()) )[0]
+non_wd_idx = np.where( (output_df['sdss_dtype'].str[0] != 'D') & (output_df['sdss_dtype'] != '') )[0]
 output_df = output_df.drop(index=non_wd_idx)
 output_df = output_df.reset_index(drop=True)
 
 
-#Drop rows where we have < 1000s NUV AND < 1000s FUV
-rows_to_drop = []
-for gnuv, gfuv, snuv, sfuv, i in zip(output_df['gaia_NUV_time'], output_df['gaia_FUV_time'], output_df['sdss_NUV_time'], output_df['sdss_FUV_time'], range(len(output_df['gaia_NUV_time']))):
-    if (gnuv=="" and gfuv=="") and (snuv!="" and sfuv!=""):
-        if (snuv < 1000) and (sfuv < 1000):
-            rows_to_drop.append(i)
-    elif (gnuv!="" and gfuv!="") and (snuv=="" and sfuv==""):
-        if (gnuv < 1000) and (gfuv < 1000):
-            rows_to_drop.append(i)
-    else:
-        if (gnuv < 1000) and (gfuv < 1000) and (snuv < 1000) and (sfuv < 1000):
-            rows_to_drop.append(i)
-'''
-names_to_drop = []
-for i in range(len(picklelist)):
-    if picklelist[i][1] < 1000 and picklelist[i][2] < 1000:
-        names_to_drop.append(picklelist[i][0])
+#Make column for maximum exposure time
+nuv_time_max = []
+fuv_time_max = []
+for i in range(len(output_df['sdss_nuv_time'])):
+    nuv_time_max.append( np.nanmax(np.array(output_df['sdss_nuv_time'][i], output_df['gaia_nuv_time'][i], output_df['mwdd_nuv_time'][i], output_df['atlas_nuv_time'][i])) )
+    fuv_time_max.append( np.nanmax(np.array(output_df['sdss_fuv_time'][i], output_df['gaia_fuv_time'][i], output_df['mwdd_fuv_time'][i], output_df['atlas_nuv_time'][i])) )
 
-rows_to_drop =[]
-#If source has only SDSS designation & in names_to_drop , add index to rows_to_drop
-sdss_only = np.where( (output_df['GaiaDesignation'] == '') & (output_df['SDSSDesignation'] != '') )[0]
-print(len(sdss_only))
-for idx in sdss_only:
-    if output_df['SDSSDesignation'][idx] in names_to_drop:
-        rows_to_drop.append(idx)
+output_df['nuv_time_max'] = nuv_time_max
+output_df['fuv_time_max'] = fuv_time_max
 
-#If a source has only GAIA designation & in names_to_drop, add index to rows_to_drop
-
-gaia_only = np.where( (output_df['GaiaDesignation'] != '') & (output_df['SDSSDesignation'] == '') )[0]
-for idx in gaia_only:
-    if 'GaiaDR2-'+"".join(list(output_df['GaiaDesignation'][idx])[9:]) in names_to_drop:    
-        rows_to_drop.append(idx)
-
-#CHECK TEST THING
-
-pickle_gaia_names = []
-pickle_gaia_expt = []
-for idx in range(len(picklelist_names)):
-    if picklelist_names[idx][0] =='G'
-    pickle_gaia_names.append(picklelist_names[idx])
-    pickle_gaia_expt.append(picklelist_expt[idx])
-
-pickle_gaia_names_2 = [ name[0:4]+" " + name[4:7]+" "+name[8:] ofr name in pickle_gaia_names ] 
-
-for gaianame in gaiacatalog['designation']:
-    i = np.where(np.array(pickle_gaia_names_2) == gaianame)[0]
-    if len(i) != 0:
-        idx = i[0]
-        if (pickle_gaia_expt[idx][0] < 1000) and (pickle_gaia_expt[idx][1] < 1000):
-        print(gaianame, pickle_gaia_names_2[idx], pickle_gaia_expt[idx])
-
-
-
-#If a source has both and both designations are in names_to_drop, add index to rows_to_drop
-gaia_and_sdss = np.where( (output_df['GaiaDesignation'] != '') & (output_df['SDSSDesignation'] != '') )[0]
-for idx in gaia_and_sdss:
-    if ('GaiaDR2-'+"".join(list(output_df['GaiaDesignation'][idx])[9:]) in names_to_drop) and (output_df['SDSSDesignation'][idx] in names_to_drop):
-        rows_to_drop.append(idx)
-'''
-
-print("Dropping " + str(len(rows_to_drop)) + " rows due to exposure time limitation")
-output_df = output_df.drop(index=rows_to_drop)
-
+#Drop rows with < 1000s of expt in both bands
+expt_drop = np.where( (output_df['nuv_time_max'] < 1000) & (output_df['fuv_time_max'] < 1000) )[0]
+print("Dropping " + str(len(expt_drop)) + " rows due to exposure time limitation")
+output_df = output_df.drop(index=expt_drop)
+output_df = output_df.reset_index(drop=True)
 
 
 #Save to CSV
-output_df.to_csv("BigCatalog_new.csv", index=False)
+output_df.to_csv("BigCatalog_Final_2.csv", index=False)
