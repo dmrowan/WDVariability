@@ -500,7 +500,41 @@ def addsimbad(sep, fname):
     input_df['SimbadName'] = simbad_names
     input_df['SimbadTypes'] = simbad_types
 
-    updated_df_name = "BigCatalog_simbad.csv"
+    updated_df_name = "{}_simbad.csv".format(fname[:-4])
+    input_df.to_csv(updated_df_name, index=False)
+
+def addasassn(sep, fname):
+    #Read in dataframe
+    assert(os.path.isfile(fname))
+    input_df = pd.read_csv(fname)
+    #Get list of asassn file names
+    asassn_file_list = os.listdir('/home/dmrowan/WhiteDwarfs/ASASSNphot/sub')
+    asassn_names = []
+    #Make easier to read names so we can convert to coordinates
+    for filename in asassn_file_list:
+        asassn_names.append(filename[:-6])
+
+    asassn_names = list(set(asassn_names))
+    asassn_ra = []
+    asassn_dec = []
+    for name in asassn_names:
+        stringcoord = name[:2]+':'+name[2:4]+':'+name[4:9]+' '+name[9:12]+':'+name[12:14]+':'+name[14:]
+        c = SkyCoord(stringcoord, unit=(u.hour, u.deg))
+        asassn_ra.append(c.ra.deg)
+        asassn_dec.append(c.dec.deg)
+    asassn_catalog = SkyCoord(ra=asassn_ra*u.degree, dec=asassn_dec*u.degree)
+    
+    df_asassn_name = []
+    for i in range(len(input_df['ra'])):
+        c2 = SkyCoord(input_df['ra'][i]*u.degree, input_df['dec'][i]*u.degree)
+        idx, d2d, d3d = c2.match_to_catalog_sky(asassn_catalog)
+        if d2d < sep*u.arcsec:
+            df_asassn_name.append(asassn_names[idx])
+        else:
+            df_asassn_name.append("")
+
+    input_df["ASASSNname"] = df_asassn_name
+    updated_df_name = "{}_asassn.csv".format(fname[:-4])
     input_df.to_csv(updated_df_name, index=False)
 
 if __name__ == '__main__':
@@ -511,11 +545,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("--sep", help="Arcsecond seperation for searching catalogs", default=5, type=float)
     parser.add_argument("--simbad", help="Add Simbad information to existing catalog", default=False, action='store_true')
-    parser.add_argument("--fname", help="Name to write/read big catalog", default="BigCatalog.csv", type=str)
+    parser.add_argument("--asassn", help="Add ASASSN information to existing catalog", default=False, action='store_true')
+    parser.add_argument("--fname", help="Name to write/read big catalog", required=True, type=str)
     args= parser.parse_args()
 
-    if not args.simbad:
-        main(sep = args.sep, fname = args.fname)
-
-    else:
+    if args.simbad:
         addsimbad(sep = args.sep, fname = args.fname)
+    elif args.asassn:
+        addasassn(sep = args.sep, fname = args.fname)
+    else:
+        main(sep = args.sep, fname=args.fname)
+

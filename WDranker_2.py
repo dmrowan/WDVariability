@@ -54,7 +54,7 @@ def readASASSN(path):
 def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     #Path assertions
     assert(os.path.isfile(csvname))
-    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/BigCatalog_Final.csv"
+    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_simbad.csv"
     assert(os.path.isfile(catalogpath))
     sigmamag_path = "Catalog/SigmaMag.csv"
     assert(os.path.isfile(sigmamag_path))
@@ -127,20 +127,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         c_mag = 0
 
     magdic = {"mag":[m_ab], "sigma":[sigma_mag_all], "weight":[1]}
-
-    ###Check if in knownvariable###
-    c_known = 0
-    df_known_variables_DAV = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/DAVInstabilityStrip.csv")
-    dav_ra_dec = [ "".join(radec.split()) for radec in df_known_variables_DAV['RA,DEC (J2000)'] ]
-    if source in dav_ra_dec:
-        print("Known DAV variable")
-        c_known = 1
-
-    df_known_variables_DBV = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/DBVInstabilityStrip.csv")
-    dbv_ra_dec = [ "".join(radec.split()) for radec in df_known_variables_DBV['RA_DEC'] ]
-    if source in dbv_ra_dec:
-        print("Known DBV variable")
-        c_known = 1
 
     ###See if we have any data in the other band###
     csvpath_other = list(csvpath)
@@ -388,19 +374,17 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         c_autocorr = 0
 
         ###Generate rating###
-        C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag) - (w_known * c_known)
+        C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag)
         print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
 
         ###Generate plot/subplot information###
         fig, ax = plt.subplots(2,2,figsize=(16,12))
-        fig.suptitle(source+" "+band+ "\n" + 
-                "AB Magnitude: " + str(round(m_ab, 2)) + ", Exposure: "+str(exposure)+ " seconds \n" +
-                "Exposure group: " + str(df_number) +"\n"+
-                #"SSPs: "+str(len(sspeaks)) + "\n" +
-                "Periodogram ratio: "+str(c_periodogram) + "\n" +
-                "Ranking: " + str(C)
+        fig.suptitle("""Exposure group {0} with {1}s \n
+                Periodogram ratio: {1} \n
+                Ranking: {2}
+                """.format(str(df_number), str(exposure), str(c_periodogram), str(C))
                 )
 
         #Subplot for LC
@@ -510,52 +494,41 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
-    #Get alternate designation if it exists
-    if source[0].isdigit():
-        sdss_source=source
-        idx_sdss = np.where(bigcatalog['SDSSDesignation'] == source)[0]
-        gaia_source = bigcatalog['GaiaDesignation'][idx_sdss]
-        variability = bigcatalog['variability'][idx_sdss]
-        binarity = bigcatalog['binarity'][idx_sdss]
-        hasdisk = bigcatalog['hasdisk'][idx_sdss]
-        mwdd_type = bigcatalog['mwdd_type'[idx_sdss]
-    elif source[0] == "G"
-        gaia_source=source
-        idx_gaia = np.where(bigcatalog['GaiaDesignation'] == source)[0]
-        sdss_source = bigcatalog['SDSSDesignation'][idx_gaia]
-        variability = bigcatalog['variability'][idx_gaia]
-        binarity = bigcatalog['binarity'][idx_gaia]
-        hasdisk = bigcatalog['hasdisk'][idx_gaia]
-        mwdd_type = bigcatalog['mwdd_type'][idx_gaia]
+    #Replace hyphens with spaces
+    bigcatalog_idx = np.where(bigcatalog['MainID'] == source)
+    spectype = bigcatalog['spectype'][bigcatalog_idx]
+    variability = bigcatalog['variability'][bigcatalog_idx]
+    binarity = bigcatalog['binarity'][bigcatalog_idx]
+    hasdisk = bigcatalog['hasdisk'][bigcatalog_idx]
+    simbad_name = bigcatalog['SimbadName'][bigcatalog_idx]
+    simbad_types = bigcatalog['SimbadTypes'][bigcatalog_idx]
+    gmag = bigcatalog['sdss_g'][bigcatalog_idx]
 
-    #Query Simbad Catalog
-    if not os.path.isfile("Catalog/AllCatalog_Simbad.csv"):
-        print("Creating catalog")
-        subprocess.run(["WDsearch"])
-
-    #Read in Simbad catalog
-    df_simbad = pd.read_csv("Catalog/AllCatalog_Simbad.csv")
-    idx_simbad = np.where(df_simbad["SourceName"] == source)[0]
-    if len(idx_simbad) > 0:
-        simbad_name = df_simbad["SimbadName"][idx_simbad]
-        simbad_types = df_simbad["SimbadType2"][idx_simbad]
+    #See if ASASSN data exists:
+    if bigcatalog['ASASSNname'][bigcatalog_idx].isnull():
+        asassn_exists = False
     else:
-        simbad_name = None
-        simbad_types = None
-    #Read in SDSS info
-    df_sdss = pd.read_csv("/home/dmrowan/WhiteDwarfs/Catalogs/SDSSCatalog.csv")
-    idx_sdss = np.where(df_sdss['SDSS-J'] == source)[0]
-    if len(idx_sdss) != 0:
-        idx_sdss = idx_sdss[0]
-        g_mag = df_sdss['g'][idx_sdss]
-        sdss_dtype = df_sdss['dtype'][idx_sdss]
-    else:
-        g_mag = ""
-        sdss_dtype = ""
+        asassn_exists = True
+        asassn_name = bigcatalog['ASASSNname'][bigcatalog_idx].isnull()
 
     #Generate output csv with pandas
-    dfoutput = pd.DataFrame()
-    dfoutput = dfoutput.append({"SourceName":source, "band":band, "TotalRank":round(totalrank,3), "BestRank":round(bestrank,3), "Comment":comment_value, "ABMag":round(m_ab, 2), "StrongestPeriod":period_to_save, "SimbadName":simbad_name, "gmag":g_mag, "dType":sdss_dtype, "FlaggedRatio":flaggedratio, "KnownVariable":c_known}, ignore_index=True)
+    outputdic = {
+            "SourceName":source, 
+            "Band":band, 
+            "TotalRank":round(totalrank, 3), 
+            "BestRank":round(bestrank, 3), 
+            "Comment":comment_value, 
+            "ABmag":round(m_ab, 2), 
+            "StrongestPeriod":period_to_save, 
+            "SimbadName":simbad_name
+            "SimbadTypes":simbad_types
+            "FlaggedRatio":flaggedratio
+            "Spectype":spectype
+            "KnownVariable":variability 
+            "Binarity":binarity
+            "Hasdisk":hasdisk
+            }
+    dfoutput = pd.DataFrame(outputdic)
     dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv", index=False)
 
 
@@ -580,7 +553,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         alldata_jd_tmean_other = [ gu.calculate_jd(t) for t in alldata_tmean_other ]
 
     #Try to find ASASSN data
-    if os.path.isfile('../ASASSNphot/ap_phot/'+source+'_V.dat'):
+    if asassn_exists:
         print("ASASSN data exists")
         figall, axall = plt.subplots(2,1, figsize=(16,12))
         #Plot total light curve
@@ -597,12 +570,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         axall[0].legend()
 
         #Plot ASASSN data
-        ASASSN_output_V = readASASSN('../ASASSNphot/ap_phot/'+source+'_V.dat')
+        ASASSN_output_V = readASASSN('../ASASSNphot/sub/'+asassn_name+'_V.dat')
         ASASSN_JD_V = ASASSN_output_V[0]
         ASASSN_mag_V = ASASSN_output_V[1]
         ASASSN_mag_err_V = ASASSN_output_V[2]
 
-        ASASSN_output_g = readASASSN('../ASASSNphot/ap_phot/'+source+'_V.dat')
+        ASASSN_output_g = readASASSN('../ASASSNphot/sub/'+asassn_name+'_g.dat')
         ASASSN_JD_g = ASASSN_output_g[0]
         ASASSN_mag_g = ASASSN_output_g[1]
         ASASSN_mag_err_g = ASASSN_output_g[2]
@@ -627,22 +600,13 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         axall.set_ylabel('Relative Counts per Second')
         axall.legend()
 
-    #If its a known variable, add that to the title
-    if c_known == 0:
-        figall.suptitle("Combined Light Curve for " + source +"-"+ band+ " \n"+
-                "AB magnitude " + str(round(m_ab, 2)) + "\n" +
-                "Total rank: " + str(round(totalrank,2)) + " in "+str(len(data))+ " exposure groups \n"+
-                "Best rank: " +str(round(bestrank,2))+ " in exposure group " + str(best_expt_group) +"\n"+
-                "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
-                )
-    else:
-        figall.suptitle("Combined Light Curve for " + source +"-"+ band+ " Known Variable \n"+
-                "AB magnitude " + str(round(m_ab, 2)) + "\n" +
-                "Total rank: " + str(round(totalrank,2)) + " in "+str(len(data))+ " exposure groups \n"+
-                "Best rank: " +str(round(bestrank,2))+ " in exposure group " + str(best_expt_group) +"\n"+
-                "SDSS Type: " + str(sdss_dtype) + " g mag: " + str(g_mag) + "\n"
-                )
-    
+    #Supertitle
+    figall.suptitle("""Combined Light Curve for {0} in {1} \n
+                    Best rank {2} in exposure group {3} \n
+                    Total rank {4} in {5} exposure groups
+                    """.format(source, band, str(round(bestrank,2)), str(best_expt_group), str(round(bestrank, 2)), str(len(data)))
+                    )
+
     all1saveimagepath = str("PNGs/"+source+"-"+band+"all1"+".png")
     figall.savefig(all1saveimagepath)
     #Clear figure
@@ -698,23 +662,18 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
     ###Information for text subplot
     axall2[1].set_ylim(ymin=0, ymax=1)
-    if c_known == 0:
-        formatknown = ''
-    else:
-        formatknown = 'y'
     information = """
-    SDSS source name: {0}
-    Gaia source name: {1}
-    Other Designations: {2} \n
-    Known Variable: {3} \n
-    ABMagnitude: {4} \n
+    Source name: {0} \n
+    Band: {1} \n
+    ABMagnitude: {2} \n
+    g Magitude: {3} \n
+    Spectral Type: {4} \n
     SIMBAD Designation: {5}
     SIMBAD Type list: {6} \n
-    MWDD Type: {7} \n
-    Known Variability (MWDD): {8} \n
-    Known Binarity: {9} \n
-    Known Disk: {10} \n
-    """.format(sdss_source, gaia_source, band, formatknown, str(round(m_ab,2))simbad_name, simbad_types, mwdd_type, variability, binarity, hasdisk)
+    Known Variability (MWDD): {7} \n
+    Known Binarity: {8} \n
+    Has Disk: {9} \n
+    """.format(source, band, m_ab, gmag,spectype, simbad_name, simbad_types, variability, binarity, hasdisk)
     axall2[1].axis('off')
     axall2[1].text(0, .5, information, size=20)
 
