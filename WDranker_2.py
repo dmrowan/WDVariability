@@ -17,6 +17,7 @@ import subprocess
 import warnings
 import importlib
 gu = importlib.import_module('gPhoton.gphoton_utils')
+import math
 #Dom Rowan REU 2018
 
 warnings.simplefilter("once")
@@ -54,7 +55,7 @@ def readASASSN(path):
 def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     #Path assertions
     assert(os.path.isfile(csvname))
-    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_simbad.csv"
+    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
     assert(os.path.isfile(catalogpath))
     sigmamag_path = "Catalog/SigmaMag.csv"
     assert(os.path.isfile(sigmamag_path))
@@ -297,12 +298,14 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         #Find bad peaks
         bad_detrad = []
         for a in top5amp_detrad:
+            if a == float('inf'):
+                continue
             idx = np.where(amp_detrad == a)[0]
             f = freq[idx]
             lowerbound = f - prange
             upperbound = f + prange
             bad_detrad.append( (lowerbound, upperbound) )
-
+            
         #Calculate false alarm thresholds
         probabilities = [fap]
         faplevels = ls.false_alarm_level(probabilities)
@@ -495,7 +498,19 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
     #Replace hyphens with spaces
-    bigcatalog_idx = np.where(bigcatalog['MainID'] == source)
+    #Have to deal with replacing hyphens in gaia / other sources differently
+    nhyphens = len(np.where(np.array(list(source)) == '-')[0])
+    if source[0:4] == 'Gaia':
+        #print(source, np.where(bigcatalog['MainID'] == source.replace('-', ' ')))
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
+    elif source[0:5] == 'ATLAS':
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0][0]
+    else:
+        if nhyphens == 1:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0][0]
+        else:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0][0]
+
     spectype = bigcatalog['spectype'][bigcatalog_idx]
     variability = bigcatalog['variability'][bigcatalog_idx]
     binarity = bigcatalog['binarity'][bigcatalog_idx]
@@ -505,28 +520,27 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     gmag = bigcatalog['sdss_g'][bigcatalog_idx]
 
     #See if ASASSN data exists:
-    if bigcatalog['ASASSNname'][bigcatalog_idx].isnull():
+    if type(bigcatalog['ASASSNname'][bigcatalog_idx]) != str:
         asassn_exists = False
     else:
         asassn_exists = True
-        asassn_name = bigcatalog['ASASSNname'][bigcatalog_idx].isnull()
-
+        asassn_name = bigcatalog['ASASSNname'][bigcatalog_idx]
     #Generate output csv with pandas
     outputdic = {
-            "SourceName":source, 
-            "Band":band, 
-            "TotalRank":round(totalrank, 3), 
-            "BestRank":round(bestrank, 3), 
-            "Comment":comment_value, 
-            "ABmag":round(m_ab, 2), 
-            "StrongestPeriod":period_to_save, 
-            "SimbadName":simbad_name
-            "SimbadTypes":simbad_types
-            "FlaggedRatio":flaggedratio
-            "Spectype":spectype
-            "KnownVariable":variability 
-            "Binarity":binarity
-            "Hasdisk":hasdisk
+            "SourceName":[source], 
+            "Band":[band], 
+            "TotalRank":[round(totalrank, 3)], 
+            "BestRank":[round(bestrank, 3)], 
+            "Comment":[comment_value], 
+            "ABmag":[round(m_ab, 2)], 
+            "StrongestPeriod":[period_to_save], 
+            "SimbadName":[simbad_name],
+            "SimbadTypes":[simbad_types],
+            "FlaggedRatio":[flaggedratio],
+            "Spectype":[spectype],
+            "KnownVariable":[variability], 
+            "Binarity":[binarity],
+            "Hasdisk":[hasdisk],
             }
     dfoutput = pd.DataFrame(outputdic)
     dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv", index=False)
@@ -570,12 +584,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         axall[0].legend()
 
         #Plot ASASSN data
-        ASASSN_output_V = readASASSN('../ASASSNphot/sub/'+asassn_name+'_V.dat')
+        ASASSN_output_V = readASASSN('../ASASSNphot_2/'+asassn_name+'_V.dat')
         ASASSN_JD_V = ASASSN_output_V[0]
         ASASSN_mag_V = ASASSN_output_V[1]
         ASASSN_mag_err_V = ASASSN_output_V[2]
 
-        ASASSN_output_g = readASASSN('../ASASSNphot/sub/'+asassn_name+'_g.dat')
+        ASASSN_output_g = readASASSN('../ASASSNphot_2/'+asassn_name+'_g.dat')
         ASASSN_JD_g = ASASSN_output_g[0]
         ASASSN_mag_g = ASASSN_output_g[1]
         ASASSN_mag_err_g = ASASSN_output_g[2]
@@ -659,23 +673,39 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     axall2[0].set_ylabel("Sigma")
     axall2[0].set_ylim(ymin=0)
     axall2[0].set_ylim(ymax=.3)
+    axall2[0].set_xlim(xmin=13)
+    axall2[0].set_xlim(xmax=25)
 
     ###Information for text subplot
     axall2[1].set_ylim(ymin=0, ymax=1)
-    information = """
-    Source name: {0} \n
-    Band: {1} \n
-    ABMagnitude: {2} \n
-    g Magitude: {3} \n
-    Spectral Type: {4} \n
-    SIMBAD Designation: {5}
-    SIMBAD Type list: {6} \n
-    Known Variability (MWDD): {7} \n
-    Known Binarity: {8} \n
-    Has Disk: {9} \n
-    """.format(source, band, m_ab, gmag,spectype, simbad_name, simbad_types, variability, binarity, hasdisk)
+    information1 = """
+    Source name:         \n
+    Band:                \n
+    ABMagnitude:         \n
+    g Magitude:          \n
+    Spectral Type:       \n
+    SIMBAD Designation:  \n
+    SIMBAD Type list:    \n
+    Known Variability:    \n
+    Known Binarity:      \n
+    Has Disk:            \n
+    """
+    information2 = """
+    {0} \n
+    {1} \n
+    {2} \n
+    {3} \n
+    {4} \n
+    {5} \n
+    {6} 
+    {7} \n
+    {8} \n
+    {9} \n
+    """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), spectype, simbad_name, simbad_types, variability, binarity, hasdisk)
+    #axall2[1].text(.2, .4, information, size=15, horizontalalignment='left', verticalalignment='center')
+    axall2[1].text(.2, 1, information1, size=15, horizontalalignment='left', verticalalignment='top')
+    axall2[1].text(.7, 1, information2, size=15, horizontalalignment='right', verticalalignment='top')
     axall2[1].axis('off')
-    axall2[1].text(0, .5, information, size=20)
 
     all2saveimagepath = str("PNGs/"+source+"-"+band+"all2"+".png")
     figall2.savefig(all2saveimagepath)

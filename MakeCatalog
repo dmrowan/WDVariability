@@ -507,33 +507,43 @@ def addasassn(sep, fname):
     #Read in dataframe
     assert(os.path.isfile(fname))
     input_df = pd.read_csv(fname)
-    #Get list of asassn file names
-    asassn_file_list = os.listdir('/home/dmrowan/WhiteDwarfs/ASASSNphot/sub')
-    asassn_names = []
-    #Make easier to read names so we can convert to coordinates
+    asassn_column = []
+    asassn_file_list = os.listdir('/home/dmrowan/WhiteDwarfs/ASASSNphot_2')
+    asassn_file_list_names_numbers = []
+    asassn_ra_numbers = []
+    asassn_dec_numbers = []
     for filename in asassn_file_list:
-        asassn_names.append(filename[:-6])
+        if filename[0] != 'G':
+            if filename[:-6] in asassn_file_list_names_numbers:
+                continue
+            else:
+                asassn_file_list_names_numbers.append(filename[:-6])
+                name = filename[:-6]
+                stringcoord = name[:2]+':'+name[2:4]+':'+name[4:9]+' '+name[9:12]+':'+name[12:14]+':'+name[14:]
+                c = SkyCoord(stringcoord, unit=(u.hour, u.deg))
+                asassn_ra_numbers.append(c.ra.deg)
+                asassn_dec_numbers.append(c.dec.deg)
 
-    asassn_names = list(set(asassn_names))
-    asassn_ra = []
-    asassn_dec = []
-    for name in asassn_names:
-        stringcoord = name[:2]+':'+name[2:4]+':'+name[4:9]+' '+name[9:12]+':'+name[12:14]+':'+name[14:]
-        c = SkyCoord(stringcoord, unit=(u.hour, u.deg))
-        asassn_ra.append(c.ra.deg)
-        asassn_dec.append(c.dec.deg)
-    asassn_catalog = SkyCoord(ra=asassn_ra*u.degree, dec=asassn_dec*u.degree)
-    
-    df_asassn_name = []
-    for i in range(len(input_df['ra'])):
-        c2 = SkyCoord(input_df['ra'][i]*u.degree, input_df['dec'][i]*u.degree)
-        idx, d2d, d3d = c2.match_to_catalog_sky(asassn_catalog)
-        if d2d < sep*u.arcsec:
-            df_asassn_name.append(asassn_names[idx])
+    assert( (len(asassn_file_list_names_numbers) == len(asassn_ra_numbers)) and (len(asassn_ra_numbers) == len(asassn_dec_numbers)) )
+    asassn_catalog_numbers = SkyCoord(ra=asassn_ra_numbers*u.degree, dec=asassn_dec_numbers*u.degree)
+    pbar = ProgressBar()
+    for i in pbar(range(len(input_df['MainID']))):
+        if input_df['MainID'][i][0] == 'G':
+            if os.path.isfile('/home/dmrowan/WhiteDwarfs/ASASSNphot_2/'+input_df['MainID'][i].replace(' ','')+'_V.dat'):
+                #File exists
+                asassn_column.append(input_df['MainID'][i].replace(' ', ''))
+            else:
+                asassn_column.append("")
         else:
-            df_asassn_name.append("")
+            c2 = SkyCoord(input_df['ra'][i]*u.degree, input_df['dec'][i]*u.degree)
+            idx, d2d, d3d = c2.match_to_catalog_sky(asassn_catalog_numbers)
+            if d2d < sep*u.arcsec:
+                asassn_column.append(asassn_file_list_names_numbers[idx])
+            else:
+                asassn_column.append("")
 
-    input_df["ASASSNname"] = df_asassn_name
+
+    input_df["ASASSNname"] = asassn_column
     updated_df_name = "{}_asassn.csv".format(fname[:-4])
     input_df.to_csv(updated_df_name, index=False)
 
