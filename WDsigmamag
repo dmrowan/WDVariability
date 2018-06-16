@@ -1,0 +1,281 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+import os, sys
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+from astropy.table import Table
+from datetime import datetime
+from dateutil import parser as pr
+from datetime import timedelta
+import astropy
+import pandas as pd
+import matplotlib.image as mpimg
+import astroquery
+from astroquery.simbad import Simbad
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from progressbar import ProgressBar
+#Dom Rowan REU 2018
+
+def main(showplot, csource):
+    #Initialize dictionary
+    output_dic = {"Source":[], "m_ab":[], "sigma_m":[], "weight":[]}
+    #Loop through all sources in current directory (that are sdss or gaia csv)
+    for filename in os.listdir(os.getcwd()):
+        if filename.endswith(".csv") and (filename[0].isdigit or filename[0]=='G'):
+            #Get the source name
+            for i in range(len(filename)):
+                character = filename[i]
+                if character == 'c':
+                    endidx=i-5
+                    break
+
+            source = filename[0:endidx]
+
+            #Grab band info
+            if filename[-7] == 'N':
+                band = 'NUV'
+                band_other = 'FUV'
+            elif filename[-7] == 'F':
+                band = 'FUV'
+                band_other = 'NUV'
+            else:
+                print("Incorrect csv")
+                break
+
+            #Read in csv
+            alldata = pd.read_csv(filename)
+
+            #Make corrections for cps rows
+            #Drop rows with > 10e10 in cps, cps_err
+            idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) )[0]
+            if len(idx_high_cps) != 0:
+                alldata = alldata.drop(index = idx_high_cps)
+                alldata = alldata.reset_index(drop=True)
+
+            #Get total magnitude average
+            m_ab_all = np.nanmean(alldata['mag_bgsub'])
+            sigma_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
+
+            #Add info to dictionary
+            if (m_ab_all > 14) and (m_ab_all < 30):
+                output_dic['Source'].append(source)
+                output_dic['m_ab'].append(m_ab_all)
+                output_dic['sigma_m'].append(sigma_all)
+                output_dic['weight'].append(1)
+
+            #Split into exposure time groups
+            breaks = []
+            for i in range(len(alldata['t0'])):
+                if i != 0:
+                    if (alldata['t0'][i] - alldata['t0'][i-1]) >= 100:
+                        breaks.append(i)
+
+            data = np.split(alldata, breaks)
+            print("Dividing " + band + " data for source " + source+ " into "+str(len(data))+" exposure groups")
+            df_number = 0
+            for df in data:
+                if not df.empty:
+                    stdev = np.std(df['cps_bgsub'])
+                    droppoints = np.where( ((df['cps_bgsub'] - np.mean(df['cps_bgsub'])) > 5*stdev) | (df['flags']!=0) | (df['exptime'] < 10) )[0]
+                    df = df.drop(index=droppoints + df.index[0])
+                    if df.shape[0] < 7:
+                        continue
+                    else:
+                        m_ab = np.nanmean(df['mag_bgsub'])
+                        sigma = np.nanstd ( (df['mag_bgsub_err_1'] + df['mag_bgsub_err_2']) / 2.0 )
+                        if (m_ab > 14) and (m_ab < 30):
+                            output_dic['Source'].append(source)
+                            output_dic['m_ab'].append(m_ab)
+                            output_dic['sigma_m'].append(sigma)
+                            output_dic['weight'].append(.25)
+
+
+    #Make output df
+    #Drop rows where there is no mean/sigma or 0 sigma
+    output_df = pd.DataFrame(output_dic)
+    dropnull = np.where( (output_df['m_ab'].isnull()) | (output_df['sigma_m'].isnull()) | (output_df['sigma_m']==0) )[0]
+    output_df = output_df.drop(index=dropnull)
+    output_df.to_csv("Catalog/SigmaMag.csv", index=False)
+
+    if showplot:
+        #Get vectors
+        mag = np.array(output_df['m_ab'])
+        sigma = np.array(output_df['sigma_m'])
+        alphas = np.array(output_df['weight'])
+        sources = np.array(output_df['Source'])
+        source_colors0 = []
+        source_colors1 = []
+        source_colors2 = []
+        for source in sources:
+            if source[0] == 'S':
+                #For sdss sources use 1, 0, 0 
+                source_colors0.append('1')
+                source_colors1.append('0')
+                source_colors2.append('0')
+            elif source[0] == 'G':
+                #For GAIA sources, use .3, .7, 0
+                source_colors0.append('.3')
+                source_colors1.append('.7')
+                source_colors2.append('0')
+            elif source[0] == 'A':
+                #ATLAS sources use .3, 0, .9
+                source_colors0.append('.3')
+                source_colors1.append('.7')
+                source_colors2.append('.9')
+            else:
+                #Other sources use .5, .1, .7
+                source_colors0.append('.5')
+                source_colors1.append('.1')
+                source_colors2.append('.7')
+
+        rgba_colors_source = np.zeros((len(source_colors0), 4))
+        rgba_colors_source[:,0] = source_colors0
+        rgba_colors_source[:,1] = source_colors1
+        rgba_colors_source[:,2] = source_colors2
+        rgba_colors_source[:,3] = alphas
+
+        rgba_colors = np.zeros((len(alphas), 4))
+        rgba_colors[:,0] = 1.0
+        rgba_colors[:,3] = alphas
+
+        mag_arrow = []
+        sigma_arrow = []
+        alphas_arrow = []
+        #Find indicies of values above .3
+        arrow_idx = np.where(sigma > .3)[0]
+        for i in arrow_idx:
+            mag_arrow.append(mag[i])
+            sigma_arrow.append(.299)
+            alphas_arrow.append(alphas[i])
+
+        mag = np.delete(mag, arrow_idx)
+        sigma = np.delete(sigma, arrow_idx)
+        alphas = np.delete(alphas, arrow_idx)
+
+        rgba_colors_2 = np.zeros((len(alphas_arrow), 4))
+        rgba_colors_2[:,0] = .3
+        rgba_colors_2[:,3] = alphas_arrow
+
+        if not csource:
+            plt.scatter(mag, sigma, color=rgba_colors, zorder=2)
+        else:
+            plt.scatter(mag, sigma, color=rgba_colors_source, zorder=2)
+        #plt.scatter(mag_arrow, sigma_arrow, color=rgba_colors_2, marker='^', zorder=1)
+        plt.ylim(ymin=0)
+        plt.ylim(ymax=.3)
+        plt.show()
+
+def main2(showplot):
+    output_dic = {"Source":[], "m_ab":[], "sigma_m":[]}
+    pbar = ProgressBar()
+    for filename in pbar(os.listdir(os.getcwd())):
+        if filename.endswith(".csv") and (filename[0].isdigit or filename[0]=='G'):
+            #Get the source name
+            for i in range(len(filename)):
+                character = filename[i]
+                if character == 'c':
+                    endidx=i-5
+                    break
+
+            source = filename[0:endidx]
+            #Grab band info
+            if filename[-7] == 'N':
+                band = 'NUV'
+                band_other = 'FUV'
+            elif filename[-7] == 'F':
+                band = 'FUV'
+                band_other = 'NUV'
+            else:
+                print("Incorrect csv")
+                break
+
+            #Read in csv
+            alldata = pd.read_csv(filename)
+
+            #Make corrections for cps rows
+            #Drop rows with > 10e10 in cps, cps_err
+            idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) )[0]
+            if len(idx_high_cps) != 0:
+                alldata = alldata.drop(index = idx_high_cps)
+                alldata = alldata.reset_index(drop=True)
+
+            #Get total magnitude average
+            m_ab_all = np.nanmean(alldata['mag_bgsub'])
+            sigma_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
+
+            #Add info to dictionary
+            if (m_ab_all > 13) and (m_ab_all < 30):
+                output_dic['Source'].append(source)
+                output_dic['m_ab'].append(m_ab_all)
+                output_dic['sigma_m'].append(sigma_all)
+
+    #Make output df
+    #Drop rows where there is no mean/sigma or 0 sigma
+    output_df = pd.DataFrame(output_dic)
+    dropnull = np.where( (output_df['m_ab'].isnull()) | (output_df['sigma_m'].isnull()) | (output_df['sigma_m']==0) )[0]
+    output_df = output_df.drop(index=dropnull)
+    output_df.to_csv("Catalog/SigmaMag_reduced.csv", index=False)
+
+    if showplot:
+        #Get vectors
+        mag = np.array(output_df['m_ab'])
+        sigma = np.array(output_df['sigma_m'])
+        sources = np.array(output_df['Source'])
+        source_colors0 = []
+        source_colors1 = []
+        source_colors2 = []
+        for source in sources:
+            if source[0] == 'S':
+                #For sdss sources use 1, 0, 0 Red
+                source_colors0.append('1')
+                source_colors1.append('0')
+                source_colors2.append('0')
+            elif source[0] == 'G':
+                #For GAIA sources, use .3, .7, 0 green
+                source_colors0.append('.3')
+                source_colors1.append('.7')
+                source_colors2.append('0')
+            elif source[0] == 'A':
+                #ATLAS sources use .3, .7, .9 blue
+                source_colors0.append('.3')
+                source_colors1.append('.7')
+                source_colors2.append('.9')
+            else:
+                #Other sources use .5, .1, .7 purple
+                source_colors0.append('.5')
+                source_colors1.append('.1')
+                source_colors2.append('.7')
+
+        rgba_colors_source = np.zeros((len(source_colors0), 4))
+        rgba_colors_source[:,0] = source_colors0
+        rgba_colors_source[:,1] = source_colors1
+        rgba_colors_source[:,2] = source_colors2
+        rgba_colors_source[:,3] = '1'
+
+        plt.scatter(mag, sigma, color=rgba_colors_source, zorder=2)
+        plt.ylim(ymin=0)
+        plt.ylim(ymax=.3)
+        plt.xlim(xmin=13)
+        plt.xlim(xmax=24)
+        plt.show()
+
+
+if __name__ == '__main__':
+    desc="""
+    This creates the sigma mag plot and generates the info used the WDranker. Pre-resiquite for WDranker
+    """
+
+    parser = argparse.ArgumentParser(description=desc)
+    parser.add_argument("--plt", help= "Display the plot after running", default=False, action='store_true')
+    parser.add_argument("--csource", help="Plot colors based on source", default=False, action='store_true')
+    parser.add_argument("--reduced", help="Dont split into expt groups", default=False, action='store_true')
+    args= parser.parse_args()
+
+    if not args.reduced:
+        main(showplot=args.plt, csource=args.csource)
+    else:
+        main2(showplot=args.plt)
+    

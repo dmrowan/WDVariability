@@ -52,7 +52,7 @@ def readASASSN(path):
 
 
 
-def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
+def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, comment):
     #Path assertions
     assert(os.path.isfile(csvname))
     catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
@@ -118,12 +118,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     m_ab = np.nanmean(alldata['mag_bgsub'])
     sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
     #Calculate c_mag based on ranges:
-    if m_ab < 16:
-        c_mag = 1
-    elif m_ab < 17:
-        c_mag = .5
-    elif m_ab < 18:
-        c_mag = .25
+    if m_ab > 13 and m_ab < 25:
+        c_mag = m_ab**(-1) * 10
     else:
         c_mag = 0
 
@@ -199,7 +195,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         c_exposure = (lasttime - firsttime) / 1000
 
         ###Dataframe corrections###
-        
         #Reset first time in t_mean to be 0
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
@@ -225,7 +220,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
             df_reduced = df_reduced.reset_index(drop=True)
 
         if df_reduced.shape[0] < 7:
-            print("Not enough points for this exposure group, skipping. Removed " +  str(len(redpoints)) + " bad points")
+            #print("Not enough points for this exposure group, skipping. Removed " +  str(len(redpoints)) + " bad points")
             df_number +=1
             continue
 
@@ -330,10 +325,16 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         
         c_periodogram = 0
         for peak in sspeaks:
-            if len(sspeaks) < 3:
-                c_periodogram += peak[3]
-            if len(sspeaks) >= 3:
-                c_periodogram += peak[3] * .25
+            if peak[0] < .0005:
+                if len(sspeaks) > 3:
+                    c_periodogram += peak[3] * .125 * .125
+                else:
+                    c_periodogram += peak[3] * .125
+            else:
+                if len(sspeaks) > 3:
+                    c_periodogram += peak[3] * .25
+                else:
+                    c_periodogram += peak[3]
 
         #Grab the info to show the strongest peak for the source
         if len(sspeaks) != 0:
@@ -378,17 +379,17 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
 
         ###Generate rating###
         C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag)
-        print("Exposure group "+str(df_number)+" ranking: "+ str(C))
+        #print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
 
         ###Generate plot/subplot information###
         fig, ax = plt.subplots(2,2,figsize=(16,12))
         fig.suptitle("""Exposure group {0} with {1}s \n
-                Periodogram ratio: {1} \n
-                Ranking: {2}
-                """.format(str(df_number), str(exposure), str(c_periodogram), str(C))
-                )
+                        Periodogram ratio: {2} \n
+                        Ranking: {3}
+                    """.format(str(df_number), str(exposure), str(c_periodogram), str(C))
+                    )
 
         #Subplot for LC
         #Convert to JD here as well
@@ -410,7 +411,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         ax[0][0].set_title(band+' light curve')
         ax[0][0].set_xlabel('Time JD')
         ax[0][0].set_ylabel('Variation in CPS')
-        ax[0][0].legend()
+        ax[0][0].legend(loc=1)
 
         #Subplot for autocorr
         ax[1][0].plot(autocorr_result, 'b-', label='data')
@@ -463,37 +464,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         biglc_counts.append(np.mean(cps_bgsub))
         biglc_err.append(np.std(cps_bgsub_err) / np.sqrt(df_reduced.shape[0]))
 
-    #Find the total rank, best rank, and best group
-    totalrank = np.sum(c_vals)
-    if len(c_vals) !=0:
-        bestrank = max(c_vals)
-        idx_best = np.where(np.array(c_vals) == bestrank)[0][0]
-        best_expt_group = df_numbers_run[idx_best]
-    else:
-        bestrank = 0
-        idx_best = 0
-        best_expt_group=0
-    print(source, "Total rank: " + str(totalrank), "Best rank: " + str(bestrank), "Best group: " + str(best_expt_group))
-
-    ###Commenting/Interactive Mode###
-    if comment:
-        if bestrank >= 0:
-            bestimagepath = "PNGs/"+source+"-"+band+"qlp"+str(best_expt_group)+".png"
-            subprocess.call(['display', bestimagepath])
-            comment_value = input("Message code: ")
-    else:
-        comment_value=""
-
-    ###Get most prevalent period from strongest_periods_list###
-    all_periods = [ tup[0] for tup in strongest_periods_list ]
-    all_ratios = [ tup[1] for tup in strongest_periods_list ] 
-    if len(all_periods) > 1:
-        period_to_save = all_periods[np.where(np.asarray(all_ratios) == max(all_ratios))[0][0]]
-    elif len(all_periods) == 1:
-        period_to_save = all_periods[0]
-        period_to_save = round(period_to_save,3)
-    else:
-        period_to_save = ''
 
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
@@ -525,6 +495,50 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     else:
         asassn_exists = True
         asassn_name = bigcatalog['ASASSNname'][bigcatalog_idx]
+
+    ###Find the total rank, best rank, and best group###
+    #Make adjustements based on non-exposure group based parameters
+    #Flagging decreases rank
+    if flaggedratio > .25:
+        c_vals = [ c * w_flag for c in c_vals ]
+    #Known information changes rank:
+    if str(binarity) != 'nan' or str(variability) != 'nan' or str(hasdisk) != 'nan':
+        c_vals = [ c * w_known for c in c_vals ]
+    if str(spectype) != 'nan':
+        if 'Z' in spectype:
+            c_vals = [ c * w_known for c in c_vals ]
+
+    totalrank = np.sum(c_vals)
+    if len(c_vals) !=0:
+        bestrank = max(c_vals)
+        idx_best = np.where(np.array(c_vals) == bestrank)[0][0]
+        best_expt_group = df_numbers_run[idx_best]
+    else:
+        bestrank = 0
+        idx_best = 0
+        best_expt_group=0
+    print(source, "Total rank: " + str(totalrank), "Best rank: " + str(bestrank), "Best group: " + str(best_expt_group))
+
+    ###Commenting/Interactive Mode###
+    if comment:
+        if bestrank >= 0:
+            bestimagepath = "PNGs/"+source+"-"+band+"qlp"+str(best_expt_group)+".png"
+            subprocess.call(['display', bestimagepath])
+            comment_value = input("Message code: ")
+    else:
+        comment_value=""
+
+    ###Get most prevalent period from strongest_periods_list###
+    all_periods = [ tup[0] for tup in strongest_periods_list ]
+    all_ratios = [ tup[1] for tup in strongest_periods_list ] 
+    if len(all_periods) > 1:
+        period_to_save = all_periods[np.where(np.asarray(all_ratios) == max(all_ratios))[0][0]]
+    elif len(all_periods) == 1:
+        period_to_save = all_periods[0]
+        period_to_save = round(period_to_save,3)
+    else:
+        period_to_save = ''
+
     #Generate output csv with pandas
     outputdic = {
             "SourceName":[source], 
@@ -618,7 +632,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     figall.suptitle("""Combined Light Curve for {0} in {1} \n
                     Best rank {2} in exposure group {3} \n
                     Total rank {4} in {5} exposure groups
-                    """.format(source, band, str(round(bestrank,2)), str(best_expt_group), str(round(bestrank, 2)), str(len(data)))
+                    """.format(source, band, str(round(bestrank,2)), str(best_expt_group), str(round(totalrank, 2)), str(len(data)))
                     )
 
     all1saveimagepath = str("PNGs/"+source+"-"+band+"all1"+".png")
@@ -634,7 +648,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     df_alphas = df_sigmamag['weight']
     rgb_1 = np.zeros((len(df_alphas),4))
     rgb_1[:,3] = df_alphas
-    axall2[0].scatter(df_sigmamag['m_ab'], df_sigmamag['sigma_m'], color=rgb_1, zorder=2)
+    axall2[0].scatter(df_sigmamag['m_ab'], df_sigmamag['sigma_m'], color=rgb_1, zorder=1)
 
     #Get information from magdic
     sourcemags = np.array(magdic['mag'])
@@ -649,6 +663,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
         arrow_mag.append(sourcemags[idx])
         arrow_sigma.append(.29)
         arrow_alpha.append(sourcealphas[idx])
+
     #Drop these indicies from the source arrays
     sourcemags = np.delete(sourcemags, idx_arrow)
     sourcesigmas = np.delete(sourcesigmas, idx_arrow)
@@ -666,8 +681,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     rgb_arrow[:,2] = 1.0
     rgb_arrow[:,3] = arrow_alpha
 
-    axall2[0].scatter(sourcemags, sourcesigmas, color=rgb_2, zorder=3)
-    axall2[0].scatter(arrow_mag, arrow_sigma, color=rgb_arrow, marker="^", zorder = 1)
+    axall2[0].scatter(sourcemags, sourcesigmas, color=rgb_2, zorder=2)
+    axall2[0].scatter(arrow_mag, arrow_sigma, color=rgb_arrow, marker="^", zorder = 3)
     axall2[0].set_title("Sigma as a function of AB mag")
     axall2[0].set_xlabel("AB mag")
     axall2[0].set_ylabel("Sigma")
@@ -686,9 +701,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     Spectral Type:       \n
     SIMBAD Designation:  \n
     SIMBAD Type list:    \n
-    Known Variability:    \n
+    Known Variability:   \n
     Known Binarity:      \n
     Has Disk:            \n
+    Strongest Period:    \n
     """
     information2 = """
     {0} \n
@@ -701,7 +717,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment):
     {7} \n
     {8} \n
     {9} \n
-    """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), spectype, simbad_name, simbad_types, variability, binarity, hasdisk)
+    {10} \n
+    """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), spectype, simbad_name, simbad_types, variability, binarity, hasdisk, period_to_save)
     #axall2[1].text(.2, .4, information, size=15, horizontalalignment='left', verticalalignment='center')
     axall2[1].text(.2, 1, information1, size=15, horizontalalignment='left', verticalalignment='top')
     axall2[1].text(.7, 1, information2, size=15, horizontalalignment='right', verticalalignment='top')
@@ -730,8 +747,9 @@ if __name__ == '__main__':
     parser.add_argument("--w_expt", help= "Weight for exposure time", default = .25, type=float)
     parser.add_argument("--w_ac", help="Weight for autocorrelation", default = 0, type=float)
     parser.add_argument("--w_mag", help= "Weight for magnitude", default=.5, type=float)
-    parser.add_argument("--w_known", help="Weight for if known (subtracted)", default=.75, type=float)
+    parser.add_argument("--w_known", help="Weight for if known binarity, variability, disk, Z spec type", default=2, type=float)
+    parser.add_argument("--w_flag", help="Weight for if more than 25% flagged (subtracted)", default=.5, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
     args= parser.parse_args()
 
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, comment=args.comment)
+    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, comment=args.comment)

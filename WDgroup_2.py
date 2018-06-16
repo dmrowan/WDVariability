@@ -23,7 +23,7 @@ import datetime
 
 warnings.simplefilter("once")
 
-def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment, noreplace):
+def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, comment, noreplace):
     firsttime = datetime.datetime.now()
     #Create the pool object
     pool=mp.Pool(processes=mp.cpu_count()+2)
@@ -38,7 +38,7 @@ def main(fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment, noreplace)
                 print('-'*100)
                 continue
             else:
-                    job = pool.apply_async(WDranker_2.main, args=(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, comment,))
+                    job = pool.apply_async(WDranker_2.main, args=(filename, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, comment,))
                     jobs.append(job)
     
     #Iterate through all the jobs
@@ -63,9 +63,10 @@ if __name__ == '__main__':
     parser.add_argument("--w_ac", help="Weight for autocorrelation", default = 0, type=float)
     parser.add_argument("--w_mag", help= "Weight for magnitude", default=.5, type=float)
     parser.add_argument("--w_known", help="Weight for if known (subtracted)", default=.75, type=float)
+    parser.add_argument("--w_flag", help="Weight for if more than 25% flagged (subtracted)", default=.5, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
     parser.add_argument("--noreplace", help="Continue for new sources rather than overwriting", default=False, action='store_true')
 
     args = parser.parse_args()
 
-    main(fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, comment=args.comment, noreplace=args.noreplace)
+    main(fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag,comment=args.comment, noreplace=args.noreplace)
