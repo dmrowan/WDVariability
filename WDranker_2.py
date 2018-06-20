@@ -13,6 +13,7 @@ import pandas as pd
 from astropy.stats import LombScargle
 import heapq
 import matplotlib.image as mpimg
+import matplotlib.gridspec as gs
 import subprocess
 import warnings
 import importlib
@@ -481,71 +482,79 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
 
         ###Generate plot/subplot information###
-        fig, ax = plt.subplots(2,2,figsize=(16,12))
-        fig.suptitle("""Exposure group {0} with {1}s \n
-                        Periodogram ratio: {2} \n
-                        Ranking: {3}
-                    """.format(str(df_number), str(exposure), str(c_periodogram), str(C))
-                    )
+        fig = plt.figure(df_number, figsize=(18,12))
+        gs.GridSpec(4,4)
+        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.suptitle("Exposure group {0} with {1}s \nRanking: {2}".format(str(df_number), str(exposure), str(C)))
 
         #Subplot for LC
+        plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
         #Convert to JD here as well
         jd_t_mean = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean ]
-        ax[0][0].errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
-        ax[0][0].axhline(alpha=.3, ls='dotted', color=bandcolors[band])
+        plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
+        plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
         if len(redpoints) != 0: #points aren't even red now...
             jd_t_mean_red = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
-            ax[0][0].errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+            plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
         if len(bluepoints) != 0: #these points aren't blue either...
             jd_t_mean_blue = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
-            ax[0][0].errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
         if other_band_exists:
             #introduce offset here
             jd_t_mean_other = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
-            ax[0][0].errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
-            ax[0][0].axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
+            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            plt.axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
 
-        ax[0][0].set_title(band+' light curve')
-        ax[0][0].set_xlabel('Time JD')
-        ax[0][0].set_ylabel('Variation in CPS')
-        ax[0][0].legend(loc=1)
+        plt.title(band+' light curve')
+        plt.xlabel('Time JD')
+        plt.ylabel('Variation in CPS')
+        plt.legend(loc=1)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         #Subplot for autocorr
-        ax[1][0].plot(autocorr_result, 'b-', label='data')
+        plt.subplot2grid((4,4), (2,2), colspan=1, rowspan=2)
+        plt.plot(autocorr_result, 'b-', label='data')
         #ax[1][0].plot(ac_x, fitfunc(ac_x, *popt), 'g-', label='fit')
         #ax[1][0].plot(residuals, 'r--', alpha=.25, label='residuals')
         #ax[1][0].plot(ac_x, ac_x*params[0]+params[1], 'r--', alpha=.5, label='linear fit')
-        ax[1][0].set_title('Autocorrelation')
-        ax[1][0].set_xlabel('Delay')
+        plt.title('Autocorrelation')
+        plt.xlabel('Delay')
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         #ax[1][0].legend()
 
         #Subplot for periodogram
-        ax[0][1].plot(freq, amp, 'g-', label='Data')
-        ax[0][1].plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
-        ax[0][1].plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
-        ax[0][1].set_title(band+' Periodogram')
-        ax[0][1].set_xlabel('Freq [Hz]')
-        ax[0][1].set_ylabel('Amplitude')
-        ax[0][1].set_xlim(0, np.max(freq))
+        plt.subplot2grid((4,4), (2,0), colspan=2, rowspan=2)
+        plt.plot(freq, amp, 'g-', label='Data')
+        plt.plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
+        plt.plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
+        plt.title(band+' Periodogram')
+        plt.xlabel('Freq [Hz]')
+        plt.ylabel('Amplitude')
+        plt.xlim(0, np.max(freq))
         if any(np.isnan(x) for x in top5amp_detrad):
             print("No detrad peaks for exposure group " + str(df_number))
         else:
             for tup in bad_detrad:
-                ax[0][1].axvspan(tup[0], tup[1], alpha=.1, color='black')
+                plt.axvspan(tup[0], tup[1], alpha=.1, color='black')
         
         #ax[0][1].axvline(x=nyquistfreq, color='r', ls='--')
         for level in faplevels:
             idx = np.where(level == faplevels)[0][0]
             fap = probabilities[idx]
-            ax[0][1].axhline(level, color='black', alpha = .5, ls = '--', label = 'FAP: '+str(fap))
+            plt.axhline(level, color='black', alpha = .5, ls = '--', label = 'FAP: '+str(fap))
 
-        ax[0][1].legend()
+        plt.legend()
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
         #Subplot for png image
+        plt.subplot2grid((4,4), (2,3), colspan=1, rowspan=2)
         pngfile = "/home/dmrowan/WhiteDwarfs/GALEXphot/pngs/"+source+".png"
         img1 = mpimg.imread(pngfile)
-        ax[1][1].imshow(img1)
+        plt.imshow(img1)
         #Turn of axes 
-        ax[1][1].axis('off')
+        #ax[1][1].axis('off')
+        plt.axis('off')
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
         saveimagepath = str("PDFs/"+source+"-"+band+"qlp"+str(df_number)+".pdf")
         fig.savefig(saveimagepath)
@@ -611,7 +620,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             "BestRank":[round(bestrank, 3)], 
             "Comment":[comment_value], 
             "ABmag":[round(m_ab, 2)], 
-            "MagUncertainty":[round(c_mag,3)]
+            "MagUncertainty":[round(c_mag,3)],
             "StrongestPeriod":[period_to_save], 
             "SimbadName":[simbad_name],
             "SimbadTypes":[simbad_types],
@@ -656,7 +665,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     #Plot ASASSN data
     if asassn_exists:
         print("ASASSN data exists")
-        figall, axall = plt.subplots(2,1, figsize=(16,12))
+        figall, axall = plt.subplots(2,1, figsize=(18,12))
+        figall.tight_layout(rect=[0, 0.03, 1, 0.95])
         #Plot total light curve
         axall[0].errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
         axall[0].errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
@@ -689,7 +699,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         axall[1].legend()
     else:
         print("No ASASSN data")
-        figall, axall = plt.subplots(1,1,figsize=(16,12))
+        figall, axall = plt.subplots(1,1,figsize=(18,12))
+        figall.tight_layout(rect=[0, 0.03, 1, 0.95])
         #Plot total light curve
         axall.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
         axall.errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
@@ -702,10 +713,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         axall.legend()
 
     #Supertitle
-    figall.suptitle("""Combined Light Curve for {0} in {1} \n
-                    Best rank {2} in exposure group {3} \n
-                    Total rank {4} in {5} exposure groups
-                    """.format(source, band, str(round(bestrank,2)), str(best_expt_group), str(round(totalrank, 2)), str(len(data)))
+    figall.suptitle("Combined Light Curve for {0} in {1} \nBest rank {2} in exposure group {3} \nTotal rank {4} in {5} exposure groups".format(source, band, str(round(bestrank,2)), str(best_expt_group), str(round(totalrank, 2)), str(len(data)))
                     )
 
     all1saveimagepath = str("PDFs/"+source+"-"+band+"all1"+".pdf")
@@ -716,7 +724,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
     ###Page 2### Magnitude sigma plot and Source information
     #Get info from sigmamag csv file (from WDsigmamag)
-    figall2, axall2 = plt.subplots(2,1,figsize=(16,12))
+    figall2, axall2 = plt.subplots(2,1,figsize=(18,12))
+    figall2.tight_layout(rect=[0, 0.03, 1, 0.95])
     df_sigmamag = pd.read_csv(sigmamag_path)
     #Pull values, weights
     allmags = df_sigmamag['m_ab']
@@ -767,7 +776,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     axall2[0].set_ylim(ymin=0)
     axall2[0].set_ylim(ymax=.3)
     axall2[0].set_xlim(xmin=13)
-    axall2[0].set_xlim(xmax=25)
+    axall2[0].set_xlim(xmax=23)
 
     ###Information for text subplot
     axall2[1].set_ylim(ymin=0, ymax=1)
