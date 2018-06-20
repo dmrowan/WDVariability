@@ -13,15 +13,24 @@ while getopts ":s:b:" opt; do
   	  ;;
 	esac
 done
+#Case with brakets first
+if [[ $source = *"["* ]]; then
 
-[ -f PDFs/${source}_${band}_combined.pdf ]  && rm -f PDFs/${source}_${band}_combined.pdf
+	source2="$(sed 's/[][]/\\&/g' <<< "${source}")"
+	[ -f PDFs/${source2}_${band}_combined.pdf ]  && rm -f PDFs/${source2}_${band}_combined.pdf
 
-cp PNGs/${source}-${band}*.png PDFs/
+	pdfunite $(ls -v PDFs/${source2}-${band}*.pdf) PDFs/${source2}_${band}_combined.pdf
 
-for i in PDFs/${source}-${band}*.png; do convert $i $i.pdf; done
+	rm -f PDFs/${source2}-${band}*.pdf
 
-rm -f PDFs/${source}-${band}*.png
+else
 
-pdfunite $(ls -v PDFs/${source}-${band}*.pdf) PDFs/${source}_${band}_combined.pdf
+	[ -f PDFs/${source}_${band}_combined.pdf ]  && rm -f PDFs/${source}_${band}_combined.pdf
 
-rm -f PDFs/${source}-${band}*.png.pdf
+	pdfunite $(ls -v PDFs/${source}-${band}*.pdf) PDFs/${source}_${band}_combined.pdf
+
+	rm -f PDFs/${source}-${band}*.pdf
+
+
+
+fi
