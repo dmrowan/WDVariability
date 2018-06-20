@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+import os, sys
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+from astropy.table import Table
+from datetime import datetime
+from dateutil import parser as pr
+from datetime import timedelta
+import astropy
+import pandas as pd
+import matplotlib.image as mpimg
+import astroquery
+from astroquery.simbad import Simbad
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from progressbar import ProgressBar
+import subprocess
+import warnings
+#Dom Rowan REU 2018
+
+warnings.simplefilter("once")
+
+def main(s,f):
+    assert(os.path.isfile("Output/AllData.csv"))
+    df_rank = pd.read_csv("Output/AllData.csv")
+    for i in range(s, f+1):
+        source = df_rank['SourceName'][i]
+        band = df_rank['Band'][i]
+        filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+        subprocess.run(['xdg-open', filename])
+        comment = input("Enter comment to save into csv. Hit enter for no comment or to keep existing comment --- ")
+        if len(comment) != 0:
+            df_rank['Comment'][i] = comment
+        
+    df_rank.to_csv("Output/AllData.csv")
+
+
+def selectidx(n):
+    assert(os.path.isfile("Output/AllData.csv"))
+    df_rank = pd.read_csv("Output/AllData.csv")
+    i = n-2
+    source = df_rank['SourceName'][i]
+    band = df_rank['Band'][i]
+    filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+    subprocess.run(['xdg-open', filename])
+    comment = input("Enter comment to save into csv. Hit enter for no comment or to keep existing comment --- ")
+    if len(comment) != 0:
+        df_rank['Comment'][i] = comment
+        
+    df_rank.to_csv("Output/AllData.csv")
+
+if __name__ == '__main__':
+    desc="""
+    This is a compact way to look through the AllData.csv files. We can look at sources in order, add comments, or supply index names
+    """
+    parser = argparse.ArgumentParser(description=desc)
+    parser.add_argument("--selectidx", help="Select row of source to view, opening pdf in window", default=None, type=int)
+    parser.add_argument("--s", help="If using fromtop, identify index to start", default=0, type=int)
+    parser.add_argument("--f", help="If using fromtop, identify index to stop", default=10, type=int)
+    args= parser.parse_args()
+
+    if args.selectidx is not None:
+        selectidx(args.selectidx)
+    else:
+        main(args.s, args.f)

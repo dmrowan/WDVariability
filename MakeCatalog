@@ -19,7 +19,7 @@ from astroquery.simbad import Simbad
 #Dom Rowan REU 2018
 
 #Read in pickle information
-def main(sep, fname):
+def main(sep, fname, noexpt_cut):
 
     with open('/home/dmrowan/WhiteDwarfs/Catalogs/checked.pickle', 'rb') as p:
         picklelist = pickle.load(p)
@@ -349,7 +349,6 @@ def main(sep, fname):
         idx, d2d, d3d = c2.match_to_catalog_sky(atlas_catalog)
         if d2d < sep*u.arcsec:
             idx = int(idx)
-            print('here')
             output_dic['ATLASDesignation'].append(df_ATLAS['ATLASname'][idx])
             output_dic['atlas_nuv_time'].append(df_ATLAS['nuv_time'][idx])
             output_dic['atlas_fuv_time'].append(df_ATLAS['fuv_time'][idx])
@@ -426,11 +425,12 @@ def main(sep, fname):
     output_df['nuv_time_max'] = nuv_time_max
     output_df['fuv_time_max'] = fuv_time_max
 
-    #Drop rows with < 1000s of expt in both bands
-    expt_drop = np.where( (output_df['nuv_time_max'] < 1000) & (output_df['fuv_time_max'] < 1000) )[0]
-    print("Dropping " + str(len(expt_drop)) + " rows due to exposure time limitation")
-    output_df = output_df.drop(index=expt_drop)
-    output_df = output_df.reset_index(drop=True)
+    if not noexpt_cut:
+        #Drop rows with < 1000s of expt in both bands
+        expt_drop = np.where( (output_df['nuv_time_max'] < 1000) & (output_df['fuv_time_max'] < 1000) )[0]
+        print("Dropping " + str(len(expt_drop)) + " rows due to exposure time limitation")
+        output_df = output_df.drop(index=expt_drop)
+        output_df = output_df.reset_index(drop=True)
 
 
     #Save to CSV
@@ -509,36 +509,53 @@ def addasassn(sep, fname):
     input_df = pd.read_csv(fname)
     asassn_column = []
     asassn_file_list = os.listdir('/home/dmrowan/WhiteDwarfs/ASASSNphot_2')
-    asassn_file_list_names_numbers = []
-    asassn_ra_numbers = []
-    asassn_dec_numbers = []
+    asassn_coordinates_dat = '/home/dmrowan/WhiteDwarfs/Catalogs/asassncoords.dat'
+    assert(os.path.isfile(asassn_coordinates_dat))
+    with open(asassn_coordinates_dat) as f:
+        lines = f.readlines()
+
+    gaia_asassn_name = []
+    gaia_asassn_ra = []
+    gaia_asassn_dec = []
+
+    for line in lines:
+        lsplit = line.split()
+        gaia_asassn_name.append(lsplit[0])
+        gaia_asassn_ra.append(float(lsplit[1]))
+        gaia_asassn_dec.append(float(lsplit[2]))
+
+    numbers_asassn_name = []
+    numbers_asassn_ra = []
+    numbers_asassn_dec = []
     for filename in asassn_file_list:
         if filename[0] != 'G':
-            if filename[:-6] in asassn_file_list_names_numbers:
+            if filename[:-6] in numbers_asassn_name:
                 continue
             else:
-                asassn_file_list_names_numbers.append(filename[:-6])
+                numbers_asassn_name.append(filename[:-6])
                 name = filename[:-6]
                 stringcoord = name[:2]+':'+name[2:4]+':'+name[4:9]+' '+name[9:12]+':'+name[12:14]+':'+name[14:]
                 c = SkyCoord(stringcoord, unit=(u.hour, u.deg))
-                asassn_ra_numbers.append(c.ra.deg)
-                asassn_dec_numbers.append(c.dec.deg)
+                numbers_asassn_ra.append(c.ra.deg)
+                numbers_asassn_dec.append(c.dec.deg)
 
-    assert( (len(asassn_file_list_names_numbers) == len(asassn_ra_numbers)) and (len(asassn_ra_numbers) == len(asassn_dec_numbers)) )
-    asassn_catalog_numbers = SkyCoord(ra=asassn_ra_numbers*u.degree, dec=asassn_dec_numbers*u.degree)
+    all_names = gaia_asassn_name + numbers_asassn_name
+    all_ra = gaia_asassn_ra + numbers_asassn_ra
+    all_dec = gaia_asassn_dec + numbers_asassn_dec
+    assert( len(all_names) == len(all_ra) == len(all_dec) )
+    asassn_catalog = SkyCoord(ra=all_ra*u.degree, dec=all_dec*u.degree)
     pbar = ProgressBar()
     for i in pbar(range(len(input_df['MainID']))):
-        if input_df['MainID'][i][0] == 'G':
+        if input_df['MainID'][i][0:4] == 'Gaia':
             if os.path.isfile('/home/dmrowan/WhiteDwarfs/ASASSNphot_2/'+input_df['MainID'][i].replace(' ','')+'_V.dat'):
-                #File exists
                 asassn_column.append(input_df['MainID'][i].replace(' ', ''))
             else:
                 asassn_column.append("")
         else:
             c2 = SkyCoord(input_df['ra'][i]*u.degree, input_df['dec'][i]*u.degree)
-            idx, d2d, d3d = c2.match_to_catalog_sky(asassn_catalog_numbers)
+            idx, d2d, d3d = c2.match_to_catalog_sky(asassn_catalog)
             if d2d < sep*u.arcsec:
-                asassn_column.append(asassn_file_list_names_numbers[idx])
+                asassn_column.append(all_names[idx])
             else:
                 asassn_column.append("")
 
@@ -557,6 +574,7 @@ if __name__ == '__main__':
     parser.add_argument("--simbad", help="Add Simbad information to existing catalog", default=False, action='store_true')
     parser.add_argument("--asassn", help="Add ASASSN information to existing catalog", default=False, action='store_true')
     parser.add_argument("--fname", help="Name to write/read big catalog", required=True, type=str)
+    parser.add_argument("--noexpt_cut", help="Dont do full cut, keep all expt", default=False, action='store_true')
     args= parser.parse_args()
 
     if args.simbad:
@@ -564,5 +582,5 @@ if __name__ == '__main__':
     elif args.asassn:
         addasassn(sep = args.sep, fname = args.fname)
     else:
-        main(sep = args.sep, fname=args.fname)
+        main(sep = args.sep, fname=args.fname, noexpt_cut=args.noexpt_cut)
 

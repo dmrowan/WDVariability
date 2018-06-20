@@ -154,11 +154,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     magbins = percentile_df['magbin']
     magbins = np.array(magbins)
     percentile50 = percentile_df['median']
-
+    upperbound = percentile_df['upper']
     if m_ab < 20.75:
         sigmamag_idx = np.where(abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
         sigmafit_val = float(percentile50[sigmamag_idx])
-        if sigma_mag_all > sigmafit_val:
+        sigmafit_val_upper = float(upperbound[sigmamag_idx])
+        if sigma_mag_all > sigmafit_val and sigma_mag_all < sigmafit_val_upper:
             c_magfit = sigma_mag_all / sigmafit_val
         else:
             c_magfit = 0
@@ -211,6 +212,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     #Replace hyphens with spaces
     #Have to deal with replacing hyphens in gaia / other sources differently
     nhyphens = len(np.where(np.array(list(source)) == '-')[0])
+    #print(source, "here")
     if source[0:4] == 'Gaia':
         #print(source, np.where(bigcatalog['MainID'] == source.replace('-', ' ')))
         bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
@@ -218,11 +220,21 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0][0]
     elif source[0:2] == 'GJ':
         bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
+    elif source[0:2] == 'CL':
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
+    elif source[0:2] == 'LP':
+        if nhyphens == 2:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0][0]
+        else:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0][0]
+    elif source[0:2] == 'V*':
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
     else:
         if nhyphens == 1:
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0][0]
         else:
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0][0]
+
 
     spectype = bigcatalog['spectype'][bigcatalog_idx]
     variability = bigcatalog['variability'][bigcatalog_idx]
@@ -283,7 +295,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         # less than 10 seconds of exposure time
         #Non-zero flagged points are removed when flagged value is 2, 4, 32, 512)
         stdev = np.std(df['cps_bgsub'])
-        bluepoints = np.where( (df['cps_bgsub'] - np.mean(df['cps_bgsub'])) > 5*stdev )[0]
+        bluepoints = np.where( (df['cps_bgsub'] - np.nanmean(df['cps_bgsub'])) > 5*stdev )[0]
         flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
         redpoints1 = np.where(np.array(flag_bool_vals) == True)[0]
         redpoints2 = np.where(df['exptime'] < 10)[0]
@@ -307,17 +319,17 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             df_reduced = df_reduced.drop(index=idx_cps_nan)
             df_reduced = df_reduced.reset_index(drop=True)
 
-        if df_reduced.shape[0] < 7:
+        if df_reduced.shape[0] < 10:
             #print("Not enough points for this exposure group, skipping. Removed " +  str(len(redpoints)) + " bad points")
             df_number +=1
             continue
 
         #If first point is not within 3 sigma, remove
-        if (df_reduced['cps_bgsub'][df_reduced.index[0]] - np.mean(df['cps_bgsub'])) > 3*stdev:
+        if (df_reduced['cps_bgsub'][df_reduced.index[0]] - np.nanmean(df['cps_bgsub'])) > 3*stdev:
             df_reduced = df_reduced.drop(index=df_reduced.index[0])
 
         #If last point is not within 3 sigma, remove
-        if (df_reduced['cps_bgsub'][df_reduced.index[-1]] - np.mean(df['cps_bgsub'])) > 3*stdev:
+        if (df_reduced['cps_bgsub'][df_reduced.index[-1]] - np.nanmean(df['cps_bgsub'])) > 3*stdev:
             df_reduced = df_reduced.drop(index=df_reduced.index[-1])
 
         ###Grab magnitude information###
@@ -450,7 +462,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         #residuals = autocorr_result - fitfunc(ac_x, *popt)
 
         ss_res = np.sum(residuals**2)
-        ss_tot = np.sum((autocorr_result-np.mean(autocorr_result))**2)
+        ss_tot = np.sum((autocorr_result-np.nanmean(autocorr_result))**2)
         if ss_tot == 0:
             r_squared = 0
             c_autocorr = 0
@@ -543,8 +555,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         plt.close('all')
         
         #Information for big light curve
-        biglc_time.append(np.mean(t_mean + firsttime_mean))
-        biglc_counts.append(np.mean(cps_bgsub))
+        biglc_time.append(np.nanmean(t_mean + firsttime_mean))
+        biglc_counts.append(np.nanmean(cps_bgsub))
         biglc_err.append(np.std(cps_bgsub_err) / np.sqrt(df_reduced.shape[0]))
 
 
@@ -812,7 +824,7 @@ if __name__ == '__main__':
     parser.add_argument("--w_mag", help= "Weight for magnitude", default=.5, type=float)
     parser.add_argument("--w_known", help="Weight for if known binarity, variability, disk, Z spec type", default=2, type=float)
     parser.add_argument("--w_flag", help="Weight for if more than 25% flagged (subtracted)", default=.5, type=float)
-    parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.5, type=float)
+    parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.25, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
     args= parser.parse_args()
 

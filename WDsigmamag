@@ -288,23 +288,27 @@ def percentile(showplot):
                 mag_i += 1
     data = np.split(input_df_reduced, breaks)
     percentile50 = []
-    percentile2sbelow = []
+    percentilelower = []
+    percentileupper = []
     lowerbound = .5
+    upperbound = 95
     for df in data:
         stdev = np.std(df['sigma_m'])
         percentile50.append(np.percentile(df['sigma_m'], 50))
-        percentile2sbelow.append(np.percentile(df['sigma_m'],lowerbound))
+        percentilelower.append(np.percentile(df['sigma_m'],lowerbound))
+        percentileupper.append(np.percentile(df['sigma_m'], upperbound))
     
     if showplot:
         plt.scatter(input_df_sorted['m_ab'], input_df_sorted['sigma_m'], color='red', s=8, zorder=1)
         plt.plot(magbins, percentile50, color='black', zorder=2, linewidth=4, label='50 percentile')
-        plt.plot(magbins, percentile2sbelow, color='green', zorder=2, linewidth=4, label=str(lowerbound)+"percentile")
+        plt.plot(magbins, percentilelower, color='green', zorder=2, linewidth=4, label=str(lowerbound)+" percentile")
+        plt.plot(magbins, percentileupper, color='blue', zorder=2, linewidth=4, label=str(upperbound)+" percentile")
         plt.xlim(xmin=13, xmax=22)
         plt.ylim(ymin=0, ymax=.3)
         plt.legend()
         plt.show()
     
-    output_dic = {'magbin':magbins, 'lower':percentile2sbelow, 'median':percentile50}
+    output_dic = {'magbin':magbins, 'lower':percentilelower, 'median':percentile50, 'upper':percentileupper}
     output_df = pd.DataFrame(output_dic)
     output_df.to_csv("Catalog/magpercentiles.csv")
 
