@@ -21,6 +21,7 @@ import math
 #Dom Rowan REU 2018
 
 warnings.simplefilter("once")
+np.warnings.simplefilter("once")
 
 #Function to read in ASASSN data - even weird tables 
 def readASASSN(path):
@@ -293,7 +294,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
         #Find indicies of data above 5 sigma of mean (counts per second column), flagged points, and points with
         # less than 10 seconds of exposure time
-        #Non-zero flagged points are removed when flagged value is 2, 4, 32, 512)
+        #These colors are not at all accurate redpoints --> grey, bluepoints --> green
+        #I just didn't want to change all the variable names. I'm not that good at vim.
         stdev = np.std(df['cps_bgsub'])
         bluepoints = np.where( (df['cps_bgsub'] - np.nanmean(df['cps_bgsub'])) > 5*stdev )[0]
         flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
@@ -609,6 +611,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             "BestRank":[round(bestrank, 3)], 
             "Comment":[comment_value], 
             "ABmag":[round(m_ab, 2)], 
+            "MagUncertainty":[round(c_mag,3)]
             "StrongestPeriod":[period_to_save], 
             "SimbadName":[simbad_name],
             "SimbadTypes":[simbad_types],
