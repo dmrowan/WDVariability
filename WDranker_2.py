@@ -214,29 +214,37 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     #Replace hyphens with spaces
     #Have to deal with replacing hyphens in gaia / other sources differently
     nhyphens = len(np.where(np.array(list(source)) == '-')[0])
-    #print(source, "here")
     if source[0:4] == 'Gaia':
-        #print(source, np.where(bigcatalog['MainID'] == source.replace('-', ' ')))
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
     elif source[0:5] == 'ATLAS':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0][0]
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
     elif source[0:2] == 'GJ':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
     elif source[0:2] == 'CL':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
     elif source[0:2] == 'LP':
         if nhyphens == 2:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0][0]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
         else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0][0]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
     elif source[0:2] == 'V*':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0][0]
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
+    elif source[0:3] == '2QZ':
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
     else:
         if nhyphens == 1:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0][0]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
         else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0][0]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0]
 
+    #Just doing this for now until I figure out how to deal with ^^^ better
+    if len(bigcatalog_idx) == 0:
+        print(source, "Not in catalog")
+        with open("../brokensources.txt", 'a') as f:
+            f.write(source + "\n")
+        return
+    else:
+        bigcatalog_idx = bigcatalog_idx[0]
 
     spectype = bigcatalog['spectype'][bigcatalog_idx]
     variability = bigcatalog['variability'][bigcatalog_idx]
@@ -306,7 +314,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         redpoints = redpoints + df.index[0]
         bluepoints = bluepoints + df.index[0]
 
-
         droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
         flagged_ratio = len(droppoints) / df.shape[0]
         if flagged_ratio > .25:
@@ -358,18 +365,16 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             cps_bgsub_other = alldata_cps_bgsub_other[idx_exposuregroup_other]
             cps_bgsub_err_other = alldata_cps_bgsub_err_other[idx_exposuregroup_other]
 
-        #Make the correction for relative scales for redpoints and purplepoints
+        #Make the correction for relative scales for redpoints and bluepoints
         if len(redpoints) != 0:
             cps_bgsub_red = df['cps_bgsub'][redpoints]
-            cps_bgsub_median_red = np.median(cps_bgsub_red)
-            cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median_red) - 1.0
-            cps_bgsub_err_red = df['cps_bgsub_err'][redpoints] / cps_bgsub_median_red
+            cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median) - 1.0
+            cps_bgsub_err_red = df['cps_bgsub_err'][redpoints] / cps_bgsub_median
             t_mean_red = df['t_mean'][redpoints]
         if len(bluepoints) != 0:
             cps_bgsub_blue = df['cps_bgsub'][bluepoints]
-            cps_bgsub_median_blue = np.median(cps_bgsub_blue)
-            cps_bgsub_blue = (cps_bgsub_blue / cps_bgsub_median_blue) - 1.0
-            cps_bgsub_err_blue = df['cps_bgsub_err'][bluepoints] / cps_bgsub_median_blue
+            cps_bgsub_blue = (cps_bgsub_blue / cps_bgsub_median) - 1.0
+            cps_bgsub_err_blue = df['cps_bgsub_err'][bluepoints] / cps_bgsub_median
             t_mean_blue = df['t_mean'][bluepoints]
         ###Periodogram Creation###
         #Fist do the periodogram of the data
@@ -423,16 +428,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         
         c_periodogram = 0
         for peak in sspeaks:
-            if peak[0] < .0005:
-                if len(sspeaks) > 3:
-                    c_periodogram += peak[3] * .125 * .125
-                else:
+            if (peak[0] < (1/ (exposure))) or (peak[0] > (1/25)):
                     c_periodogram += peak[3] * .125
             else:
-                if len(sspeaks) > 3:
-                    c_periodogram += peak[3] * .25
-                else:
-                    c_periodogram += peak[3]
+                c_periodogram += peak[3]
 
         #Grab the info to show the strongest peak for the source
         if len(sspeaks) != 0:
@@ -476,6 +475,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         c_autocorr = 0
 
         #####GENERATE RATING#####
+        print(c_periodogram, c_exposure, c_autocorr, c_mag, c_flagged, c_known, c_magfit)
         C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag) + (w_flag * c_flagged) + (w_known * c_known) + (w_magfit * c_magfit)
         #print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
@@ -485,24 +485,28 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         fig = plt.figure(df_number, figsize=(18,12))
         gs.GridSpec(4,4)
         fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-        fig.suptitle("Exposure group {0} with {1}s \nRanking: {2}".format(str(df_number), str(exposure), str(C)))
+        fig.suptitle("Exposure group {0} with {1}s \nRanking: {2} {3} significant peaks".format(str(df_number), str(exposure), str(C), str(len(sspeaks))))
 
         #Subplot for LC
         plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
         #Convert to JD here as well
         jd_t_mean = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean ]
-        plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
+        #plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
+        plt.errorbar(jd_t_mean, cps_bgsub,  color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
         plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
         if len(redpoints) != 0: #points aren't even red now...
             jd_t_mean_red = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
-            plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+            #plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+            plt.errorbar(jd_t_mean_red, cps_bgsub_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
         if len(bluepoints) != 0: #these points aren't blue either...
             jd_t_mean_blue = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
-            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            #plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
         if other_band_exists:
             #introduce offset here
             jd_t_mean_other = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
-            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            #plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
             plt.axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
 
         plt.title(band+' light curve')
