@@ -74,7 +74,7 @@ def badflag_bool(x):
     return False
 
 #Main ranking function
-def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_magfit, comment):
+def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_magfit, comment, cof):
     ###Path assertions###
     catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
     sigmamag_path = "Catalog/SigmaMag_reduced.csv"
@@ -317,7 +317,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
         flagged_ratio = len(droppoints) / df.shape[0]
         if flagged_ratio > .25:
-            c_flagged = 1
+            c_flagged = -1
         else:
             c_flagged = 0
         df_reduced = df.drop(index=droppoints)
@@ -351,6 +351,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         magdic["weight"].append(.25)
         
         #Get the cps_bgsub, error and time columns and make correction for relative scales
+        #Standard deviation divided by the median of the error as an interesting thing. Should be significantly above 1. Might be a good way to quickly see whats varying 
         cps_bgsub = df_reduced['cps_bgsub']
         cps_bgsub_median = np.median(cps_bgsub)
         cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
@@ -425,13 +426,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
                 #If hits is still 0, the peak isnt in any of the bad ranges
                 if hits == 0:
                     sspeaks.append( (f, a, fapval, ratio) ) 
-        
-        c_periodogram = 0
-        for peak in sspeaks:
-            if (peak[0] < (1/ (exposure))) or (peak[0] > (1/25)):
-                    c_periodogram += peak[3] * .125
-            else:
-                c_periodogram += peak[3]
 
         #Grab the info to show the strongest peak for the source
         if len(sspeaks) != 0:
@@ -442,6 +436,14 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             strongest_period_ratio = (sspeaks_ratio[np.where(np.asarray(sspeaks_amp)==max(sspeaks_amp))[0][0]])
             strongest_period = 1.0 / strongest_freq
             strongest_periods_list.append((strongest_period[0], strongest_period_ratio))
+
+
+        c_periodogram = 0
+        for peak in sspeaks:
+            if (peak[0] < (1/ (exposure))) or (peak[0] > (1/25)):
+                    c_periodogram += peak[3] * .125
+            else:
+                c_periodogram += peak[3]
 
         ###Autocorrelation results###
         autocorr_result = np.correlate(cps_bgsub, cps_bgsub, mode='full')
@@ -475,14 +477,13 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         c_autocorr = 0
 
         #####GENERATE RATING#####
-        print(c_periodogram, c_exposure, c_autocorr, c_mag, c_flagged, c_known, c_magfit)
         C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag) + (w_flag * c_flagged) + (w_known * c_known) + (w_magfit * c_magfit)
         #print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
 
         ###Generate plot/subplot information###
-        fig = plt.figure(df_number, figsize=(18,12))
+        fig = plt.figure(df_number, figsize=(16,12))
         gs.GridSpec(4,4)
         fig.tight_layout(rect=[0, 0.03, 1, 0.95])
         fig.suptitle("Exposure group {0} with {1}s \nRanking: {2} {3} significant peaks".format(str(df_number), str(exposure), str(C), str(len(sspeaks))))
@@ -535,6 +536,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         plt.xlabel('Freq [Hz]')
         plt.ylabel('Amplitude')
         plt.xlim(0, np.max(freq))
+        plt.ylim(0, np.max(amp)*2)
         if any(np.isnan(x) for x in top5amp_detrad):
             print("No detrad peaks for exposure group " + str(df_number))
         else:
@@ -669,22 +671,25 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     #Plot ASASSN data
     if asassn_exists:
         print("ASASSN data exists")
-        figall, axall = plt.subplots(2,1, figsize=(18,12))
-        figall.tight_layout(rect=[0, 0.03, 1, 0.95])
+        figall = plt.figure(figsize=(16,12))
+        gs.GridSpec(2, 2)
+        fig.tight_layout(rect=[0, .03, 1, .95])
         #Plot total light curve
-        axall[0].errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
-        axall[0].errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
-        axall[0].set_xlabel('Time [s]')
-        axall[0].set_ylabel('Relative Counts per Second')
+        plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
+        plt.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
+        plt.errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
+        plt.xlabel('Time [s]')
+        plt.ylabel('Relative Counts per Second')
         #Plot data in other band
         if other_band_exists:
             print("Plotting additional LC data for " + band_other + " band")
-            axall[0].errorbar(alldata_jd_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
-        axall[0].set_xlabel('Time [s]')
-        axall[0].set_ylabel('Relative Counts per Second')
-        axall[0].legend()
+            plt.errorbar(alldata_jd_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
+        plt.xlabel('Time [s]')
+        plt.ylabel('Relative Counts per Second')
+        plt.legend()
 
         #Plot ASASSN data
+        plt.subplot2grid((2,2), (1,0), colspan=1, rowspan=1)
         ASASSN_output_V = readASASSN('../ASASSNphot_2/'+asassn_name+'_V.dat')
         ASASSN_JD_V = ASASSN_output_V[0]
         ASASSN_mag_V = ASASSN_output_V[1]
@@ -695,15 +700,33 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         ASASSN_mag_g = ASASSN_output_g[1]
         ASASSN_mag_err_g = ASASSN_output_g[2]
 
-        axall[1].errorbar(ASASSN_JD_V, ASASSN_mag_V, yerr=ASASSN_mag_err_V, color='blue', ls='-', label='V band')
-        axall[1].errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band')
-        axall[1].set_xlabel('JD')
-        axall[1].set_ylabel("V Magnitude")
-        axall[1].set_title('ASASSN LC')
-        axall[1].legend()
+        plt.errorbar(ASASSN_JD_V, ASASSN_mag_V, yerr=ASASSN_mag_err_V, color='blue', ls='-', label='V band', ecolor='gray')
+        plt.errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band', ecolor='gray')
+        plt.ylim(22, 13)
+        plt.xlabel('JD')
+        plt.ylabel("V Magnitude")
+        plt.title('ASASSN LC')
+        plt.legend()
+
+        plt.subplot2grid((2,2), (1,1), colspan=1, rowspan=1)
+        lsV = LombScargle(ASASSN_JD_V, ASASSN_mag_V)
+        freqV, ampV = lsV.autopower(nyquist_factor=1)
+        lsg = LombScargle(ASASSN_JD_g, ASASSN_mag_g)
+        freqg, ampg = lsg.autopower(nyquist_factor=1)
+        
+        plt.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
+        plt.plot(freqg, ampg, color='green', label='g mag', zorder=1)
+        plt.axhline(y=lsV.false_alarm_level(.1), color='blue', alpha=.5, ls='-')
+        plt.axhline(y=lsg.false_alarm_level(.1), color='green', alpha=.5, ls='-')
+        plt.xlabel('Frequency [Hz]')
+        plt.ylabel('Amplitude')
+        plt.title('Periodogram for ASASSN Data')
+        plt.legend(loc=1)
+
+        
     else:
         print("No ASASSN data")
-        figall, axall = plt.subplots(1,1,figsize=(18,12))
+        figall, axall = plt.subplots(1,1,figsize=(16,12))
         figall.tight_layout(rect=[0, 0.03, 1, 0.95])
         #Plot total light curve
         axall.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
@@ -728,7 +751,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
     ###Page 2### Magnitude sigma plot and Source information
     #Get info from sigmamag csv file (from WDsigmamag)
-    figall2, axall2 = plt.subplots(2,1,figsize=(18,12))
+    figall2, axall2 = plt.subplots(2,1,figsize=(16,12))
     figall2.tight_layout(rect=[0, 0.03, 1, 0.95])
     df_sigmamag = pd.read_csv(sigmamag_path)
     #Pull values, weights
@@ -842,6 +865,10 @@ if __name__ == '__main__':
     parser.add_argument("--w_flag", help="Weight for if more than 25% flagged (subtracted)", default=.5, type=float)
     parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.25, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
+    parser.add_argument("--cof", help="Use flux or cps", default='cps', type=str)
     args= parser.parse_args()
 
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, w_magfit=args.w_magfit, comment=args.comment)
+    if args.cof != 'cps':
+        assert(args.cof == 'flux')
+
+    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, w_magfit=args.w_magfit, comment=args.comment, cof=args.cof)
