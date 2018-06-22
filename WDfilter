@@ -1,0 +1,84 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+import os, sys
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+from astropy.table import Table
+from datetime import datetime
+from dateutil import parser as pr
+from datetime import timedelta
+import astropy
+import pandas as pd
+import matplotlib.image as mpimg
+import astroquery
+from astroquery.simbad import Simbad
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from progressbar import ProgressBar
+import subprocess
+import warnings
+import math
+#Dom Rowan REU 2018
+
+warnings.simplefilter("once")
+
+def main():
+    assert(os.path.isfile("Output/AllData.csv"))
+    assert(os.path.isfile("../filtersources.txt"))
+    df_rank = pd.read_csv("Output/AllData.csv")
+    idx_drop = []
+    name_drop = []
+    band_drop = []
+    galexcsv_drop = []
+    outputcsv_drop = []
+    pdf_drop = []
+    for i in range(len(df_rank['Comment'])):
+        if df_rank['Comment'][i] == 'x':
+            idx_drop.append(i)
+            name = df_rank['SourceName'][i]
+            band = df_rank['Band'][i]
+            name_drop.append(name)
+            band_drop.append(band)
+            galexcsv_drop.append(name+"-"+band+".csv")
+            outputcsv_drop.append("Output/"+name+"-"+band+"-output.csv")
+            pdf_drop.append("PDFs/"+name+"_"+band+"_combined.pdf")
+
+    df_rank = df_rank.drop(index=idx_drop)
+    df_rank = df_rank.reset_index(drop=True)
+    confirm = input("Dropping all rows with 'x' in comment. Hit y to confirm --- ")
+    if confirm == 'y':
+        df_rank.to_csv("Output/AllData.csv")
+        for gname, outputname, pdfname in zip(galexcsv_drop, outputcsv_drop, pdf_drop):
+            subprocess.run(['rm', gname])
+            subprocess.run(['rm', outputname])
+            subprocess.run(['rm', pdfname])
+            with open('../filtersources.txt', 'a') as f:
+                f.write(gname)
+    else:
+        return
+
+
+def filterdir():
+    assert(os.path.isfile("../filtersources.txt"))
+    with open("../filtersources.txt", 'r') as f:
+        filteredfiles = f.readlines()
+
+    for filename in filteredfiles:
+        subprocess.run(['rm', filename])
+
+
+
+if __name__ == '__main__':
+    desc="""
+    Go through AllData.csv and remove sources with x in comments. This will remove the output files, galexcsv, pdf, and add to list of filtered sources in WhiteDwarfs/filteredsources.txt
+    """
+    parser = argparse.ArgumentParser(description=desc)
+    parser.add_argument("--filterdir", help="Use current filtered information to reduce sample in current directory", default=False, action='store_true')
+    args= parser.parse_args()
+
+    if args.filterdir:
+        filterdir()
+    else:
+        main()
