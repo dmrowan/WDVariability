@@ -1,30 +1,12 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
-import os, sys
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
+import os
 import argparse
-from astropy.table import Table
-from datetime import datetime
-from dateutil import parser as pr
-from datetime import timedelta
-import astropy
 import pandas as pd
-import matplotlib.image as mpimg
-import astroquery
-from astroquery.simbad import Simbad
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-from progressbar import ProgressBar
 import subprocess
-import warnings
-import time
-import math
 #Dom Rowan REU 2018
-desc="""Three functional options: view/comment on functions in range --f to --l (default), select specific idx --i to view/comment, or move index --move to interesting sources directory under specific headers"""
 
-warnings.simplefilter("once")
+desc="""Three functional options: view/comment on functions in range --f to --l (default), select specific idx --i to view/comment, or move index --move to interesting sources directory under specific headers"""
 
 #View and comment on sources in range f, l+1
 def main(f,l):
@@ -130,7 +112,7 @@ def move(i):
             print("Directory already exists")
         else:
             print("Making directory for source")
-            subprocess.run(['mkdir', '../InterestingSources/'+objecttype+"/"+source])
+            subprocess.run(['mkdir', '../InterestingSources/'+objecttype+'/'+source])
 
         #Move pdf file and csvfile
         subprocess.run(['cp', pdffilename, '../InterestingSources/'+objecttype+"/"+source+"/"])
@@ -138,6 +120,7 @@ def move(i):
         
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("--i", help="Select row of source to view, opening pdf in window", default=None, type=int)
     parser.add_argument("--f", help="If using fromtop, identify first index", default=2, type=int)

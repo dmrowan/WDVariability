@@ -1,28 +1,18 @@
 #!/usr/bin/env python
 from __future__ import print_function, division, absolute_import
-import os, sys
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
-from astropy import log
-from os import path
-from glob import glob
-import astropy
-import ipdb
 import pandas as pd
 from astropy.stats import LombScargle
 import heapq
 import matplotlib.image as mpimg
 import matplotlib.gridspec as gs
 import subprocess
-import warnings
-import importlib
-gu = importlib.import_module('gPhoton.gphoton_utils')
-import math
+from gPhoton import gphoton_utils
 #Dom Rowan REU 2018
 
-warnings.simplefilter("once")
-np.warnings.simplefilter("once")
 
 #Function to read in ASASSN data - even weird tables 
 def readASASSN(path):
@@ -74,7 +64,7 @@ def badflag_bool(x):
     return False
 
 #Main ranking function
-def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_magfit, comment, cof):
+def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_magfit, comment):
     ###Path assertions###
     catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
     sigmamag_path = "Catalog/SigmaMag_reduced.csv"
@@ -84,7 +74,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     assert(os.path.isfile(sigmamag_path))
     assert(os.path.isfile(sigmamag_percentile_path))
     assert(os.path.isdir('PDFs'))
-    assert(os.path.isdir('PNGs'))
     assert(os.path.isdir('Output'))
 
     #Find source name from csvpath
@@ -110,7 +99,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
     assert(band is not None)
     print(source, band)
-    badflags = [2,4,32,512]
     bandcolors = {'NUV':'red', 'FUV':'blue'}
     alldata = pd.read_csv(csvpath)
     ###Alldata table corrections###
@@ -173,6 +161,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     csvpath_other = list(csvpath)
     csvpath_other[-7] = band_other[0]
     csvpath_other = "".join(csvpath_other)
+    #Look for file in GALEXphot/LCs
+    csvpath_other = '/home/dmrowan/WhiteDwarfs/GALEXphot/LCs/'+csvpath_other
     if os.path.isfile(csvpath_other):
         other_band_exists = True
         alldata_other = pd.read_csv(csvpath_other)
@@ -240,8 +230,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     #Just doing this for now until I figure out how to deal with ^^^ better
     if len(bigcatalog_idx) == 0:
         print(source, "Not in catalog")
-        with open("../brokensources.txt", 'a') as f:
-            f.write(source + "\n")
+        #with open("../brokensources.txt", 'a') as f:
+        #    f.write(source + "\n")
         return
     else:
         bigcatalog_idx = bigcatalog_idx[0]
@@ -357,8 +347,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
         cps_bgsub_err = df_reduced['cps_bgsub_err'] / cps_bgsub_median
         t_mean = df_reduced['t_mean']
+
         #If we have data in the other band, find points corresponding to this exposure group
-        #We've already done the relative scale correction (on the entire alldata_other table)
         #First get the indicies corresponding to this group in the other band
         if other_band_exists:
             idx_exposuregroup_other = np.where( (alldata_tmean_other > firsttime) & (alldata_tmean_other < lasttime))[0]
@@ -377,6 +367,13 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             cps_bgsub_blue = (cps_bgsub_blue / cps_bgsub_median) - 1.0
             cps_bgsub_err_blue = df['cps_bgsub_err'][bluepoints] / cps_bgsub_median
             t_mean_blue = df['t_mean'][bluepoints]
+
+        ###Additional metric### - Ratio of std / sigma
+        #cps_std = np.std(df_reduced['cps_bgsub'])
+        #median_error = np.median(df_reduced['cps_bgsub_err'])
+        #c_uncertainty = cps_std / median_error
+
+
         ###Periodogram Creation###
         #Fist do the periodogram of the data
         ls = LombScargle(t_mean, cps_bgsub)
@@ -478,7 +475,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
         #####GENERATE RATING#####
         C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag) + (w_flag * c_flagged) + (w_known * c_known) + (w_magfit * c_magfit)
-        #print("Exposure group "+str(df_number)+" ranking: "+ str(C))
+        print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
 
@@ -491,23 +488,22 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         #Subplot for LC
         plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
         #Convert to JD here as well
-        jd_t_mean = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean ]
-        #plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
-        plt.errorbar(jd_t_mean, cps_bgsub,  color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
+        jd_t_mean = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean ]
+        plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='', zorder=4, label=band)
+        #plt.errorbar(jd_t_mean, cps_bgsub,  color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
         plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
         if len(redpoints) != 0: #points aren't even red now...
-            jd_t_mean_red = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
-            #plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
-            plt.errorbar(jd_t_mean_red, cps_bgsub_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+            jd_t_mean_red = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
+            plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+            #plt.errorbar(jd_t_mean_red, cps_bgsub_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
         if len(bluepoints) != 0: #these points aren't blue either...
-            jd_t_mean_blue = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
-            #plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
-            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            jd_t_mean_blue = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
+            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            #plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
         if other_band_exists:
             #introduce offset here
-            jd_t_mean_other = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
-            #plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
-            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            jd_t_mean_other = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
+            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
             plt.axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
 
         plt.title(band+' light curve')
@@ -579,14 +575,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
 
     ###Find the total rank, best rank, and best group###
-    #Make adjustements based on non-exposure group based parameters
-    #Known information changes rank:
-    if str(binarity) != 'nan' or str(variability) != 'nan' or str(hasdisk) != 'nan':
-        c_vals = [ c * w_known for c in c_vals ]
-    if str(spectype) != 'nan':
-        if 'Z' in spectype:
-            c_vals = [ c * w_known for c in c_vals ]
-
     totalrank = np.sum(c_vals)
     if len(c_vals) !=0:
         bestrank = max(c_vals)
@@ -656,10 +644,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     alldata_cps_bgsub_err = alldata['cps_bgsub_err'] / alldata_mediancps
 
     #Convert to JD
-    alldata_jd_tmean = [ gu.calculate_jd(t) for t in alldata_tmean ] 
-    biglc_jd_time = [ gu.calculate_jd(t) for t in biglc_time ]
+    alldata_jd_tmean = [ gphoton_utils.calculate_jd(t) for t in alldata_tmean ] 
+    biglc_jd_time = [ gphoton_utils.calculate_jd(t) for t in biglc_time ]
     if other_band_exists:
-        alldata_jd_tmean_other = [ gu.calculate_jd(t) for t in alldata_tmean_other ]
+        alldata_jd_tmean_other = [ gphoton_utils.calculate_jd(t) for t in alldata_tmean_other ]
 
     #See if ASASSN data exists:
     if type(bigcatalog['ASASSNname'][bigcatalog_idx]) != str:
@@ -673,7 +661,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         print("ASASSN data exists")
         figall = plt.figure(figsize=(16,12))
         gs.GridSpec(2, 2)
-        fig.tight_layout(rect=[0, .03, 1, .95])
+        figall.tight_layout(rect=[0, .03, 1, .95])
         #Plot total light curve
         plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
         plt.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
@@ -702,22 +690,39 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
         plt.errorbar(ASASSN_JD_V, ASASSN_mag_V, yerr=ASASSN_mag_err_V, color='blue', ls='-', label='V band', ecolor='gray')
         plt.errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band', ecolor='gray')
-        plt.ylim(22, 13)
+        maxmag_V = max(ASASSN_mag_V)
+        maxmag_g = max(ASASSN_mag_g)
+        minmag_V = min(ASASSN_mag_V)
+        minmag_g = min(ASASSN_mag_g)
+        maxmag = max(maxmag_V, maxmag_g)
+        minmag = min(minmag_V, minmag_g)
+        plt.ylim(maxmag, minmag)
         plt.xlabel('JD')
         plt.ylabel("V Magnitude")
         plt.title('ASASSN LC')
         plt.legend()
 
         plt.subplot2grid((2,2), (1,1), colspan=1, rowspan=1)
-        lsV = LombScargle(ASASSN_JD_V, ASASSN_mag_V)
-        freqV, ampV = lsV.autopower(nyquist_factor=1)
-        lsg = LombScargle(ASASSN_JD_g, ASASSN_mag_g)
-        freqg, ampg = lsg.autopower(nyquist_factor=1)
-        
-        plt.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
-        plt.plot(freqg, ampg, color='green', label='g mag', zorder=1)
-        plt.axhline(y=lsV.false_alarm_level(.1), color='blue', alpha=.5, ls='-')
-        plt.axhline(y=lsg.false_alarm_level(.1), color='green', alpha=.5, ls='-')
+        if len(ASASSN_JD_V) > 5:
+            lsV = LombScargle(ASASSN_JD_V, ASASSN_mag_V, dy=ASASSN_mag_err_V)
+            freqV, ampV = lsV.autopower(nyquist_factor=1)
+            plt.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
+            plt.xlim(xmax=(1/30))
+            plt.axhline(y=lsV.false_alarm_level(.1), color='blue', alpha=.5, ls='-')
+        if len(ASASSN_JD_g) > 5:
+            lsg = LombScargle(ASASSN_JD_g, ASASSN_mag_g, dy=ASASSN_mag_err_g)
+            freqg, ampg = lsg.autopower(nyquist_factor=1)
+            plt.plot(freqg, ampg, color='green', label='g mag', zorder=1)
+            plt.xlim(xmax=(1/30))
+            plt.axhline(y=lsg.false_alarm_level(.1), color='green', alpha=.5, ls='-')
+    
+        #Print frequencies
+        if False:
+            idx_asassn_max_v = np.where(np.array(ampV)==max(ampV))[0]
+            print("Frequency V band: ", freqV[idx_asassn_max_v])
+            idx_asassn_max_g = np.where(np.array(ampg)==max(ampg))[0]
+            print("Frequency g band: ", freqg[idx_asassn_max_g])
+
         plt.xlabel('Frequency [Hz]')
         plt.ylabel('Amplitude')
         plt.title('Periodogram for ASASSN Data')
@@ -865,10 +870,6 @@ if __name__ == '__main__':
     parser.add_argument("--w_flag", help="Weight for if more than 25% flagged (subtracted)", default=.5, type=float)
     parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.25, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
-    parser.add_argument("--cof", help="Use flux or cps", default='cps', type=str)
     args= parser.parse_args()
 
-    if args.cof != 'cps':
-        assert(args.cof == 'flux')
-
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, w_magfit=args.w_magfit, comment=args.comment, cof=args.cof)
+    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, w_magfit=args.w_magfit, comment=args.comment)

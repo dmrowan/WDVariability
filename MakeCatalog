@@ -1,20 +1,14 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
-import os, sys
-import matplotlib.pyplot as plt
+import os
 import numpy as np
 import argparse
-from astropy import log
-import astropy
 import pandas as pd
 import subprocess
-import astroquery
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 import _pickle as pickle
-import ipdb
 from progressbar import ProgressBar
-from astroquery.simbad import Simbad
 
 #Dom Rowan REU 2018
 
@@ -74,7 +68,6 @@ def main(sep, fname, noexpt_cut):
             "atlas_fuv_time":[],
     }
 
-    SDSSpath = "/home/dmrowan/WhiteDwarfs/Catalogs/SDSSCatalog.csv"
     df_SDSS = pd.read_csv("SDSSCatalog.csv")
     df_SDSS['ra'] = df_SDSS['SDSS-J'].str[0:2]+":"+ df_SDSS['SDSS-J'].str[2:4]+":"+ df_SDSS['SDSS-J'].str[4:9]
     df_SDSS['dec'] = df_SDSS['SDSS-J'].str[9:12] + ":" + df_SDSS['SDSS-J'].str[12:14] + ":" + df_SDSS['SDSS-J'].str[14:]
@@ -418,7 +411,6 @@ def main(sep, fname, noexpt_cut):
     nuv_time_max = []
     fuv_time_max = []
     for i in range(len(output_df['sdss_nuv_time'])):
-        timearray = np.zeros
         nuv_time_max.append( np.nanmax(np.asarray([output_df['sdss_nuv_time'][i], output_df['gaia_nuv_time'][i], output_df['mwdd_nuv_time'][i], output_df['atlas_nuv_time'][i]])) )
         fuv_time_max.append( np.nanmax(np.asarray([output_df['sdss_fuv_time'][i], output_df['gaia_fuv_time'][i], output_df['mwdd_fuv_time'][i], output_df['atlas_nuv_time'][i]])) )
 

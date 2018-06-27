@@ -1,39 +1,32 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
-import os, sys
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
+import os
 import argparse
-from astropy.table import Table
-from datetime import datetime
-from dateutil import parser as pr
-from datetime import timedelta
-import astropy
 import pandas as pd
-import matplotlib.image as mpimg
-import astroquery
-from astroquery.simbad import Simbad
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-from progressbar import ProgressBar
 import subprocess
-import warnings
-import math
 #Dom Rowan REU 2018
 
-warnings.simplefilter("once")
+desc="""
+Go through AllData.csv and remove sources with x in comments. This will remove the output files, galexcsv, pdf, and add to list of filtered sources in WhiteDwarfs/filteredsources.txt
+"""
 
+#Add sources to text file of bad sources
 def main():
     assert(os.path.isfile("Output/AllData.csv"))
-    assert(os.path.isfile("../filtersources.txt"))
+    #Create file if it doesn't already exist
+    if not os.path.isfile("../filtersources.txt"):
+        with open('../filtersources.txt', 'w') as f:
+            f.close()
+    #Read in AllData.csv
     df_rank = pd.read_csv("Output/AllData.csv")
+    #Intialize Lists
     idx_drop = []
     name_drop = []
     band_drop = []
     galexcsv_drop = []
     outputcsv_drop = []
     pdf_drop = []
+    #Iterate through DF
     for i in range(len(df_rank['Comment'])):
         if df_rank['Comment'][i] == 'x':
             idx_drop.append(i)
@@ -45,21 +38,21 @@ def main():
             outputcsv_drop.append("Output/"+name+"-"+band+"-output.csv")
             pdf_drop.append("PDFs/"+name+"_"+band+"_combined.pdf")
 
-    df_rank = df_rank.drop(index=idx_drop)
-    df_rank = df_rank.reset_index(drop=True)
-    confirm = input("Dropping all rows with 'x' in comment. Hit y to confirm --- ")
+    confirm = input("Filtering all rows with 'x' in comment. Hit y to confirm --- ")
     if confirm == 'y':
-        df_rank.to_csv("Output/AllData.csv")
         for gname, outputname, pdfname in zip(galexcsv_drop, outputcsv_drop, pdf_drop):
             subprocess.run(['rm', gname])
             subprocess.run(['rm', outputname])
             subprocess.run(['rm', pdfname])
+            with open('../filtersources.txt', 'r') as f:
+                currentlines = f.readlines()
             with open('../filtersources.txt', 'a') as f:
-                f.write(gname)
+                if not (gname in currentlines):
+                    f.write(gname)
     else:
         return
 
-
+#Used to filter a new sample by known 'bad' sources
 def filterdir():
     assert(os.path.isfile("../filtersources.txt"))
     with open("../filtersources.txt", 'r') as f:
@@ -71,9 +64,7 @@ def filterdir():
 
 
 if __name__ == '__main__':
-    desc="""
-    Go through AllData.csv and remove sources with x in comments. This will remove the output files, galexcsv, pdf, and add to list of filtered sources in WhiteDwarfs/filteredsources.txt
-    """
+
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("--filterdir", help="Use current filtered information to reduce sample in current directory", default=False, action='store_true')
     args= parser.parse_args()

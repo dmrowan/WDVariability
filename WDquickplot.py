@@ -1,80 +1,23 @@
 #!/usr/bin/env python
 from __future__ import print_function, division, absolute_import
-import os, sys
-import warnings
-warnings.simplefilter("ignore")
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
-from astropy import log
-from os import path
-from glob import glob
-import astropy
-import ipdb
 import pandas as pd
 from astropy.stats import LombScargle
-import heapq
-import matplotlib.image as mpimg
 import matplotlib.gridspec as gs
 import subprocess
-import importlib
-gu = importlib.import_module('gPhoton.gphoton_utils')
-import math
+from gPhoton import gphoton_utils
+from WDranker_2 import badflag_bool
 #Dom Rowan REU 2018
 
-np.warnings.simplefilter("once")
+desc="""
+Produces plots of LC and periodogram for different sampling rates. Used to ensure detected variability is real
+"""
 
-#Function to read in ASASSN data - even weird tables 
-def readASASSN(path):
-    jd_list = []
-    mag_list = []
-    mag_err_list = []
-    with open(path) as f:
-        for line in f:
-            if line[0].isdigit():
-                datlist = line.rstrip().split()
-                jd_list.append(datlist[0])
-                mag_list.append(datlist[7])
-                mag_err_list.append(datlist[8])
-
-    i=0
-    while i < len(mag_err_list):
-        if float(mag_err_list[i]) > 10:
-            del jd_list[i]
-            del mag_list[i]
-            del mag_err_list[i]
-        else:
-            i += 1
-
-    jd_list = [ float(element) for element in jd_list ] 
-    mag_list = [ float(element) for element in mag_list ]
-    mag_err_list = [ float(element) for element in mag_err_list ]
-
-    return [jd_list, mag_list, mag_err_list]
-
-#Convert the flag value into a binary string and see if we have a bad flag
-def badflag_bool(x):
-    bvals = [512,256,128,64,32,16,8,4,2,1]
-    val = x
-    output_string = ''
-    for i in range(len(bvals)):
-        if val >= bvals[i]:
-            output_string += '1'
-            val = val - bvals[i]
-        else:
-            output_string += '0'
-    
-    badflag_vals = output_string[0] + output_string[4] + output_string[7] + output_string[8]
-    for char in badflag_vals:
-        if char == '1':
-            return True
-            break
-        else:
-            continue
-    return False
-
-#Main ranking function
-def main(csvname, fap, prange, cof):
+#Main plotting function
+def main(csvname):
     ###Path assertions###
     assert(os.path.isfile(csvname))
     assert(os.path.isdir("PDFs"))
@@ -94,18 +37,20 @@ def main(csvname, fap, prange, cof):
             break
 
     source = csvpath[0:endidx]
-    if '60' in csvpath[endidx:]:
+    #Determine sampling 
+    if '5' in csvpath[endidx:]:
+        sampling='5'
+    elif '30' in csvpath[endidx:]:
+        sampling='30'
+    elif '60' in csvpath[endidx:]:
         sampling='60'
     elif '120' in csvpath[endidx:]:
         sampling='120'
-    elif '30' in csvpath[endidx:]:
-        sampling='30'
-    elif '5' in csvpath[endidx:]:
-        sampling='5'
+    else:
+        sampling='15'
 
     assert(band is not None)
     print(source, band, sampling)
-    badflags = [2,4,32,512]
     bandcolors = {'NUV':'red', 'FUV':'blue'}
     alldata = pd.read_csv(csvpath)
     ###Alldata table corrections###
@@ -122,18 +67,6 @@ def main(csvname, fap, prange, cof):
         t1 = alldata['t1'][idx]
         mean = (t1 + t0) / 2.0
         alldata['t_mean'][idx] = mean
-
-    #Get information on flags
-    n_rows = alldata.shape[0]
-    n_flagged = 0
-    for i in range(len(alldata['flags'])):
-        if badflag_bool(alldata['flags'][i]):
-            n_flagged += 1
-
-    if float(n_rows) == 0:
-        allflaggedratio = float('NaN')
-    else:
-        allflaggedratio = float(n_flagged) / float(n_rows)
 
 
     ###See if we have any data in the other band###
@@ -192,10 +125,6 @@ def main(csvname, fap, prange, cof):
 
     ###Create lists to fill### - these will be the primary output of main()
     df_number = 1
-    biglc_time = []
-    biglc_counts = []
-    biglc_err = []
-    strongest_periods_list = []
     skipnum = 0
     ###Loop through each exposure group###
     for df in data:
@@ -216,8 +145,6 @@ def main(csvname, fap, prange, cof):
 
         #Find indicies of data above 5 sigma of mean (counts per second column), flagged points, and points with
         # less than 10 seconds of exposure time
-        #These colors are not at all accurate redpoints --> grey, bluepoints --> green
-        #I just didn't want to change all the variable names. I'm not that good at vim.
         stdev = np.std(df['cps_bgsub'])
         bluepoints = np.where( (df['cps_bgsub'] - np.nanmean(df['cps_bgsub'])) > 5*stdev )[0]
         flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
@@ -237,8 +164,8 @@ def main(csvname, fap, prange, cof):
             df_reduced = df_reduced.drop(index=idx_cps_nan)
             df_reduced = df_reduced.reset_index(drop=True)
 
+        #Skip group if not enough data points
         if df_reduced.shape[0] < 10:
-            #print("Not enough points for this exposure group, skipping. Removed " +  str(len(redpoints)) + " bad points")
             df_number +=1
             skipnum += 1
             continue
@@ -253,7 +180,6 @@ def main(csvname, fap, prange, cof):
 
         
         #Get the cps_bgsub, error and time columns and make correction for relative scales
-        #Standard deviation divided by the median of the error as an interesting thing. Should be significantly above 1. Might be a good way to quickly see whats varying 
         cps_bgsub = df_reduced['cps_bgsub']
         cps_bgsub_median = np.median(cps_bgsub)
         cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
@@ -293,7 +219,7 @@ def main(csvname, fap, prange, cof):
         freq_expt, amp_expt = ls_expt.autopower(nyquist_factor=1)
 
         #Calculate false alarm thresholds
-        probabilities = [fap]
+        probabilities = [.05]
         faplevels = ls.false_alarm_level(probabilities)
 
 
@@ -305,30 +231,27 @@ def main(csvname, fap, prange, cof):
 
         #Subplot for LC
         plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
-        #Convert to JD here as well
-        jd_t_mean = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean ]
-        plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='', zorder=4, label=band)
-        #plt.errorbar(jd_t_mean, cps_bgsub,  color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
-        plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
-        if len(redpoints) != 0: #points aren't even red now...
-            jd_t_mean_red = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
-            plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
-            #plt.errorbar(jd_t_mean_red, cps_bgsub_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
-        if len(bluepoints) != 0: #these points aren't blue either...
-            jd_t_mean_blue = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
-            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
-            #plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
-        if other_band_exists:
-            #introduce offset here
-            jd_t_mean_other = [ gu.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
-            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
-            plt.axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
-
         plt.title(band+' light curve')
         plt.xlabel('Time JD')
         plt.ylabel('Variation in CPS')
         plt.legend(loc=1)
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        #Convert to JD here as well
+        jd_t_mean = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean ]
+        plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='', zorder=4, label=band)
+        plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
+        if len(redpoints) != 0: #points aren't even red now...
+            jd_t_mean_red = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
+            plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+        if len(bluepoints) != 0: #these points aren't blue either...
+            jd_t_mean_blue = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
+            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+        if other_band_exists:
+            #introduce offset here
+            jd_t_mean_other = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
+            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            plt.axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
 
 
         #Subplot for periodogram
@@ -365,19 +288,9 @@ def main(csvname, fap, prange, cof):
     else:
         subprocess.run(['PDFcreator_quick', '-s', source, '-b', band, '-t', sampling])
 if __name__ == '__main__':
-    
-    desc="""
-    This produces the ranked value C for a single source dependent on exposure, periodicity, autocorrelation, and other statistical measures
-    """
 
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("--csvname", help= "Input full csv file", required=True, type=str)
-    parser.add_argument("--fap", help = "False alarm probability theshold for periodogram", default=.05, type=float)
-    parser.add_argument("--prange", help = "Frequency range for identifying regions in periodogram due to expt and detrad", default=.0005, type=float)
-    parser.add_argument("--cof", help="Use flux or cps", default='cps', type=str)
     args= parser.parse_args()
 
-    if args.cof != 'cps':
-        assert(args.cof == 'flux')
-
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, cof=args.cof)
+    main(csvname=args.csvname)
