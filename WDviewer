@@ -33,12 +33,16 @@ def main(f,l):
     l = l-2
     for i in range(f,l+1):
         #Load in n files at a time
-        numload = 5
+        numload = 8
         if (i == f) & (i % numload != 0):
             for ii in range(i, i+(numload-(i%numload))):
                 source = df_rank['SourceName'][ii]
                 band = df_rank['Band'][ii]
-                filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+                if '[' in source:
+                   source = source.replace('[', "\[").replace(']','\]')
+                   filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+                else:
+                    filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
                 subprocess.run(['xdg-open', filename])
         if i % numload == 0:
             if (l-i)>numload:
@@ -48,7 +52,11 @@ def main(f,l):
             for ii in range(i,upper):
                 source = df_rank['SourceName'][ii]
                 band = df_rank['Band'][ii]
-                filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+                if '[' in source:
+                   source = source.replace('[', "\[").replace(']','\]')
+                   filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+                else:
+                    filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
                 subprocess.run(['xdg-open', filename])
 
         if str(df_rank['Comment'][i]) != 'nan':
@@ -58,7 +66,6 @@ def main(f,l):
             break
         if len(comment) != 0:
             df_rank.loc[i, 'Comment'] = comment
-            #df_rank['Comment'][i] = comment
 
     df_rank.to_csv("Output/AllData.csv", index=False)
 
@@ -69,15 +76,47 @@ def selectidx(n):
     i = n-2
     source = df_rank['SourceName'][i]
     band = df_rank['Band'][i]
-    filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+    if '[' in source:
+       source = source.replace('[', "\[").replace(']','\]')
+       filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+    else:
+        filename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
     subprocess.run(['xdg-open', filename])
     if str(df_rank['Comment'][i]) != 'nan':
         print("Current comment: ", df_rank['Comment'][i])
     comment = input("Enter comment to save into csv. Hit enter for no comment or to keep existing comment --- ")
     if len(comment) != 0:
-        df_rank['Comment'][i] = comment
+        df_rank.loc[i, 'Comment'] = comment
         
     df_rank.to_csv("Output/AllData.csv", index=False)
+
+def move(i):
+    assert(os.path.isfile("Output/AllData.csv"))
+    df_rank = pd.read_csv("Output/AllData.csv")
+    i = i-2
+    source = df_rank['SourceName'][i]
+    band = df_rank['Band'][i]
+    if '[' in source:
+       source = source.replace('[', "\[").replace(']','\]')
+       pdffilename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+       csvfilename = "{0}-{1}.csv".format(source, band)
+    else:
+        pdffilename = "PDFs/{0}_{1}_combined.pdf".format(source, band)
+        csvfilename = "{0}-{1}.csv".format(source, band)
+    objecttype = input("Enter category to move to: Pulsator, KnownPulsator, or Eclipse --- ")
+    if (objecttype != "Pulsator") and (objecttype != "KnownPulsator") and (objecttype != "Eclipse"):
+        print("Invalid object type")
+        return
+    else:
+        if os.path.isdir("../InterestingSources/"+objecttype+"/"+source):
+            print("Directory already exists")
+        else:
+            print("Making directory for source")
+            subprocess.run(['mkdir', '../InterestingSources/'+objecttype+"/"+source])
+
+        subprocess.run(['cp', pdffilename, '../InterestingSources/'+objecttype+"/"+source+"/"])
+        subprocess.run(['cp', csvfilename, '../InterestingSources/'+objecttype+"/"+source+"/"])
+        
 
 if __name__ == '__main__':
     desc="""
@@ -87,9 +126,12 @@ if __name__ == '__main__':
     parser.add_argument("--i", help="Select row of source to view, opening pdf in window", default=None, type=int)
     parser.add_argument("--f", help="If using fromtop, identify first index", default=2, type=int)
     parser.add_argument("--l", help="If using fromtop, identify last index", default=12, type=int)
+    parser.add_argument("--move", help="Move file in index to Interesting sources", default=None, type=int)
     args= parser.parse_args()
 
-    if args.i is not None:
+    if args.move is not None:
+        move(args.move)
+    elif args.i is not None:
         selectidx(args.i)
     else:
         main(args.f, args.l)

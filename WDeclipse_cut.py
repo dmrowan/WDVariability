@@ -20,7 +20,7 @@ import subprocess
 import importlib
 gu = importlib.import_module('gPhoton.gphoton_utils')
 import math
-from scipy.stats import chi2
+from scipy.stats import chisquare
 #Dom Rowan REU 2018
 
 np.warnings.simplefilter("once")
@@ -243,8 +243,11 @@ def main(csvname, fap, prange, cof):
             t_mean_blue = df['t_mean'][bluepoints]
 
         ####Check if we have an eclipse#####
-        lowvals = np.where(np.array(cps_bgsub) < -.9)[0]
+        lowvals = np.where(np.array(cps_bgsub) < -.7)[0]
         if len(lowvals) != 0:
+            """"
+            e_start_found =False
+            e_end_found=False
             for i in range(len(cps_bgsub)):
                 if (cps_bgsub[i] < -.25) and (cps_bgsub[i+1] < cps_bgsub[i]):
                     e_start_idx = i-4
@@ -268,12 +271,11 @@ def main(csvname, fap, prange, cof):
             if e_end_found:
                 t_eclipse_end = gu.calculate_jd(t_eclipse_end+firsttime_mean)
                 #print("End of eclipse detected at", t_eclipse_end)
-
+            """
             ###Generate plot/subplot information###
             fig = plt.figure(df_number, figsize=(16,12))
             gs.GridSpec(2,2)
             fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-            fig.suptitle("Exposure group {0} with {1}s".format(str(df_number), str(exposure)))
 
             #Subplot for LC
             plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
@@ -307,7 +309,6 @@ def main(csvname, fap, prange, cof):
             plt.legend(loc=1)
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-
             #Figure out where to cutoff periodogram#
             point_jd_start = eclipsepoints[0][0]
             idx_jd_start = np.where(np.array(abs(jd_t_mean - point_jd_start)) == np.min(abs(jd_t_mean - point_jd_start)))[0][0]
@@ -320,17 +321,19 @@ def main(csvname, fap, prange, cof):
             if len(t_mean[:idx_jd_start]) > len(t_mean[idx_jd_end:]):
                 print("More data before eclipse")
                 t_mean = t_mean[:idx_jd_start]
+                jd_t_mean = jd_t_mean[:idx_jd_start]
                 cps_bgsub = cps_bgsub[:idx_jd_start]
                 cps_bgsub_err = cps_bgsub_err[:idx_jd_start]
                 detrad = df_reduced['detrad'][:idx_jd_start]
                 exptime = df_reduced['exptime'][:idx_jd_start]
             else:
                 print("More data after eclipse")
-                t_mean = t_mean[idx_jd_end:]
-                cps_bgsub = cps_bgsub[idx_jd_end:]
-                cps_bgsub_err = cps_bgsub_err[idx_jd_end:]
-                detrad = df_reduced['detrad'][idx_jd_end:]
-                exptime = df_reduced['exptime'][idx_jd_end:]
+                t_mean = list(t_mean[idx_jd_end:])
+                jd_t_mean = list(jd_t_mean[idx_jd_end:])
+                cps_bgsub = list(cps_bgsub[idx_jd_end:])
+                cps_bgsub_err = list(cps_bgsub_err[idx_jd_end:])
+                detrad = list(df_reduced['detrad'][idx_jd_end:])
+                exptime = list(df_reduced['exptime'][idx_jd_end:])
 
             plt.title(band+' light curve')
             plt.xlabel('Time JD')
@@ -338,13 +341,26 @@ def main(csvname, fap, prange, cof):
             plt.legend(loc=1)
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-            chi2 = 0
-            for val in cps_bgsub:
-                chi2 += ( (val)**2 
+            #Compute reduced-chi2 for the non-eclipse part of the data
+            #Fit line to data
+            fitparams = np.polyfit(jd_t_mean, cps_bgsub, deg=1)
+            expectedvalues = [ (fitparams[0]*time + fitparams[1]) for time in jd_t_mean ]
+            chi2_fit = 0
+            for i in range(len(cps_bgsub)):
+                numerator = (cps_bgsub[i]-expectedvalues[i])**2
+                denominator=cps_bgsub_err[i]**2
+                chi2_fit += (numerator/denominator)
+            print("Chi2 using fit mx+b:", chi2_fit)
+
+            #Scipy chi2
+            chisq, p = chisquare(cps_bgsub, expectedvalues)
+            print("Chi2 using scipy:", chisq) 
+
+            plt.plot(jd_t_mean, expectedvalues, ls='--', alpha=.5)
 
             #Fist do the periodogram of the data
-            ls = LombScargle(t_mean, cps_bgsub)
-            freq, amp = ls.autopower(nyquist_factor=1)
+            ls = LombScargle(t_mean, cps_bgsub, dy=cps_bgsub_err)
+            freq, amp = ls.autopower(nyquist_factor=1, method='slow')
             
             #Periodogram for dither information
             ls_detrad = LombScargle(t_mean, detrad)
@@ -366,16 +382,21 @@ def main(csvname, fap, prange, cof):
             plt.xlabel('Freq [Hz]')
             plt.ylabel('Amplitude')
             plt.xlim(0, np.max(freq))
-            plt.ylim(0, np.max(amp)*2)
             for level in faplevels:
                 idx = np.where(level == faplevels)[0][0]
                 fap = probabilities[idx]
                 plt.axhline(level, color='black', alpha = .5, ls = '--', label = 'FAP: '+str(fap))
 
+            if max(faplevels) > max(amp):
+                plt.ylim(ymax=1.2*max(faplevels))
+            else:
+                plt.ylim(0, np.max(amp)*2)
+
             plt.legend()
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-            saveimagepath = str("PDFs/"+source+"-"+band+"-"+"eclipse.pdf")
+            fig.suptitle("Exposure group {0} with {1}s \nChi2 non-eclipse: {2}".format(str(df_number), str(exposure), str(chisq)))
+            saveimagepath = str("PDFs/"+source+"-"+band+"-"+"eclipse"+str(df_number)+".pdf")
             fig.savefig(saveimagepath)
             df_number += 1
 
