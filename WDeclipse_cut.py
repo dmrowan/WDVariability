@@ -99,7 +99,7 @@ def main(csvname):
     breaks = []
     for i in range(len(alldata['t0'])):
         if i != 0:
-            if (alldata['t0'][i] - alldata['t0'][i-1]) >= 150:
+            if (alldata['t0'][i] - alldata['t0'][i-1]) >= 200:
                 breaks.append(i)
 
     data = np.split(alldata, breaks)
@@ -255,18 +255,11 @@ def main(csvname):
 
             #Compute reduced-chi2 for the non-eclipse part of the data
             #Fit line to data
-            fitparams = np.polyfit(jd_t_mean, cps_bgsub, deg=1)
-            expectedvalues = [ (fitparams[0]*time + fitparams[1]) for time in jd_t_mean ]
-            chi2_fit = 0
-            for i in range(len(cps_bgsub)):
-                numerator = (cps_bgsub[i]-expectedvalues[i])**2
-                denominator=cps_bgsub_err[i]**2
-                chi2_fit += (numerator/denominator)
-            print("Chi2 using fit mx+b:", chi2_fit)
-
-            #Scipy chi2
+            fitparams = np.polyfit(jd_t_mean, cps_bgsub, deg=0)
+            expectedvalues = [fitparams[0]]*len(jd_t_mean)
             chisq, p = chisquare(cps_bgsub, expectedvalues)
-            print("Chi2 using scipy:", chisq) 
+            chisq_reduced = chisq / (len(jd_t_mean) - 1)
+            print("Chi2 using scipy:", chisq_reduced) 
 
             plt.plot(jd_t_mean, expectedvalues, ls='--', alpha=.5)
 
@@ -307,7 +300,7 @@ def main(csvname):
             plt.legend()
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-            fig.suptitle("Exposure group {0} with {1}s \nChi2 non-eclipse: {2}".format(str(df_number), str(exposure), str(chisq)))
+            fig.suptitle("Exposure group {0} with {1}s \nReduced Chi2 non-eclipse: {2}".format(str(df_number), str(exposure), str(chisq_reduced)))
             saveimagepath = str("PDFs/"+source+"-"+band+"-"+"eclipse"+str(df_number)+".pdf")
             fig.savefig(saveimagepath)
             df_number += 1
@@ -325,8 +318,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("--csvname", help= "Input full csv file", required=True, type=str)
     args= parser.parse_args()
-
-    if args.cof != 'cps':
-        assert(args.cof == 'flux')
 
     main(csvname=args.csvname)
