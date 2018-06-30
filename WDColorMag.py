@@ -2,7 +2,6 @@
 from __future__ import print_function, division, absolute_import
 import os
 import matplotlib.pyplot as plt
-import matplotlib.widgets as wd
 import numpy as np
 import argparse
 import pandas as pd
@@ -15,7 +14,7 @@ WDColorMag: Produce color mag plot with shading based on best rank. Used to help
 """
 
 #Main Plotting function:
-def main(pick, view, region):
+def main(pick, view, region, mark):
     #Path assertions
     assert(os.path.isfile("Output/AllData.csv"))
     assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"))
@@ -70,13 +69,14 @@ def main(pick, view, region):
             gaia_parallax = bigcatalog['gaia_parallax'][bigcatalog_idx]
             if str(gaia_parallax) == 'nan':
                 no_gaia_data_counter += 1
+            elif gaia_parallax <= 0:
+                no_gaia_data_counter += 1
             else:
                 #Calcualte bp-rp, absolute mag
                 g_mag = bigcatalog['gaia_g_mean_mag'][bigcatalog_idx]
                 bp_mag = bigcatalog['gaia_bp_mean_mag'][bigcatalog_idx]
                 rp_mag = bigcatalog['gaia_rp_mean_mag'][bigcatalog_idx]
 
-                gaia_parallax = gaia_parallax / 10e3
                 absolute_mag_list.append(g_mag + 5*np.log10(gaia_parallax/100))
      
                 bp_rp_list.append(bp_mag - rp_mag)
@@ -94,13 +94,32 @@ def main(pick, view, region):
     plt.figure(figsize=(16,12))
     plt.scatter(df_plot['bp_rp'], df_plot['absolutemag'], c=df_plot['rank'], cmap='autumn_r')
     plt.colorbar().set_label("Rank", fontsize=20)
-    plt.ylim(ymin=max(absolute_mag_list)+.5, ymax=min(absolute_mag_list)-.5)
+    #plt.ylim(ymin=max(absolute_mag_list)+.5, ymax=min(absolute_mag_list)-.5)
+    plt.ylim(ymin=15, ymax=6)
+    plt.xlim(xmin=-.8, xmax=1.5)
     plt.title("Gaia CMD \n Sources not included: {}".format(no_gaia_data_counter), fontsize=20)
     plt.xlabel("BP-RP", fontsize=20)
     plt.ylabel("AbsoluteMag", fontsize=20)
 
+    if mark is not None:
+        #Determine if idx or source input:
+        if mark.isdigit():
+            mark = df_rank['SourceName'][int(mark)]
+
+        if mark not in list(df_plot['source']):
+            print("No gaia information on ", source)
+        else:
+            for i in range(len(df_plot['source'])):
+                if df_plot['source'][i] == mark:
+                    ii = i
+                    break
+            print(ii)
+            print(df_plot.loc[ii])
+            plt.plot([df_plot['bp_rp'][ii]], [df_plot['absolutemag'][ii]], 'o', color='green', ms=10)
+        
+        plt.show()
     #Grab specific point
-    if pick:
+    elif pick:
         pick_point = plt.ginput(1, show_clicks=True)[0]
         coords = []
         for i in range(len(df_plot['absolutemag'])):
@@ -113,15 +132,20 @@ def main(pick, view, region):
             deltay = pick_point[1] - coords[i][1]
             distances.append(sqrt(deltax**2 + deltay**2))
         assert(len(distances) == len(coords))
-        closest_indicies = np.where(np.array(distances) == np.min(distances))[0]
+        closest_indicies = np.where(np.array(distances) == np.nanmin(distances))[0]
         for idx in closest_indicies:
-            print(df_plot.iloc[idx])
+            if not view:
+                idx_alldata = np.where( (df_rank['SourceName'] == df_plot['source'][idx]) & (df_rank['Band'] == df_plot['band'][idx]) )[0]
+                idx_alldata = idx_alldata[0] + 2
+                print(idx_alldata)
+            print(df_plot.loc[idx])
         
 
         if view:
             for idx in closest_indicies:
                 idx_alldata = np.where( (df_rank['SourceName'] == df_plot['source'][idx]) & (df_rank['Band'] == df_plot['band'][idx]) )[0]
                 idx_alldata = idx_alldata[0] + 2
+                print(idx_alldata)
                 
                 selectidx(idx_alldata, comment=False)
 
@@ -154,6 +178,7 @@ def main(pick, view, region):
         print(df_region)
         plt.show()
 
+
     else:
         plt.show()
 
@@ -163,6 +188,7 @@ if __name__ == '__main__':
     parser.add_argument("--pick", help="Use Lasso to select points and output sourcename", default=False, action='store_true')
     parser.add_argument("--view", help="View pdf of selected source", default=False, action='store_true')
     parser.add_argument("--region", help="Draw a box and grab info on all sources in region", default=False, action='store_true')
+    parser.add_argument("--mark", help="Input either the idx of a source (in AllData) or its actual name and mark it's position on the CMD", default=None, type=str)
     args= parser.parse_args()
 
-    main(args.pick, args.view, args.region)
+    main(args.pick, args.view, args.region, args.mark)
