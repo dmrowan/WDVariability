@@ -2,11 +2,13 @@
 from __future__ import print_function, division, absolute_import
 import os
 import matplotlib.pyplot as plt
+from matplotlib.patches import ConnectionPatch
 import numpy as np
 import argparse
 import pandas as pd
 from math import sqrt
 from WDviewer import selectidx
+
 #Dom Rowan REU 2018
 
 desc="""
@@ -14,7 +16,7 @@ WDColorMag: Produce color mag plot with shading based on best rank. Used to help
 """
 
 #Main Plotting function:
-def main(pick, view, region, mark):
+def main(pick, view, region, mark, markgroup):
     #Path assertions
     assert(os.path.isfile("Output/AllData.csv"))
     assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"))
@@ -34,7 +36,7 @@ def main(pick, view, region, mark):
     source_list = []
     band_list = []
     for source, i in zip(df_rank_reduced['SourceName'], range(len(df_rank_reduced['SourceName']))):
-        #Find source in BigCatalog
+        #Find source in BigCatalog to get gaia mag and color
         nhyphens = len(np.where(np.array(list(source)) == '-')[0])
         if source[0:4] == 'Gaia':
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
@@ -91,15 +93,42 @@ def main(pick, view, region, mark):
     #Plotting params
     df_plot = pd.DataFrame({'source':source_list, 'band':band_list,'rank':rank_list, 'absolutemag':absolute_mag_list, 'bp_rp':bp_rp_list})
     df_plot = df_plot.sort_values(by=['rank'])
-    plt.figure(figsize=(16,12))
-    plt.scatter(df_plot['bp_rp'], df_plot['absolutemag'], c=df_plot['rank'], cmap='autumn_r')
-    plt.colorbar().set_label("Rank", fontsize=20)
-    #plt.ylim(ymin=max(absolute_mag_list)+.5, ymax=min(absolute_mag_list)-.5)
-    plt.ylim(ymin=15, ymax=6)
-    plt.xlim(xmin=-.8, xmax=1.5)
-    plt.title("Gaia CMD \n Sources not included: {}".format(no_gaia_data_counter), fontsize=20)
-    plt.xlabel("BP-RP", fontsize=20)
-    plt.ylabel("AbsoluteMag", fontsize=20)
+
+    #Different plotting parameters. Using markgroup for paper plot generation
+    if markgroup:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        fig.tight_layout(rect=[.03, 0.03, 1, 1])
+        fig.subplots_adjust(wspace=.125)
+        ax1.scatter(df_plot['bp_rp'], df_plot['absolutemag'], c='gray', alpha=.5, label='_nolegend_')
+        ax2.scatter(df_plot['bp_rp'], df_plot['absolutemag'], c='gray', alpha=.5, label='_nolegend_')
+    else:
+        fig, ax1 = plt.subplots(1,1, figsize=(12,4))
+        ax1.scatter(df_plot['bp_rp'], df_plot['absolutemag'], c=df_plot['rank'], cmap='autumn_r')
+        ax1.colorbar().set_label("Rank", fontsize=20)
+        plt.title("Gaia CMD \n Sources not included: {}".format(no_gaia_data_counter), fontsize=20)
+
+    ax1.set_ylim(ymin=15, ymax=5.75)
+    ax1.set_xlim(xmin=-.85, xmax=.65)
+    ax1.minorticks_on()
+    ax1.yaxis.set_ticks_position('both')
+    ax1.xaxis.set_ticks_position('both')
+    ax1.tick_params(direction='in', which='both', labelsize=15)
+    ax1.tick_params('both', length=8, width=1.8, which='major')
+    ax1.tick_params('both', length=4, width=1, which='minor')
+    ax1.set_xlabel("Gaia Color BP-RP", fontsize=15)
+    ax1.set_ylabel("Absolute Gaia GMag", fontsize=15)
+    
+    #Second subplot params
+    if markgroup:
+        ax2.set_ylim(ymin=12.65, ymax=11.35)
+        ax2.set_xlim(xmin=-.022, xmax=.16)
+        ax2.minorticks_on()
+        ax2.yaxis.set_ticks_position('both')
+        ax2.xaxis.set_ticks_position('both')
+        ax2.tick_params(direction='in', which='both', labelsize=15)
+        ax2.tick_params('both', length=8, width=1.8, which='major')
+        ax2.tick_params('both', length=4, width=1, which='minor')
+        ax2.set_xlabel("Gaia Color BP-RP", fontsize=15)
 
     if mark is not None:
         #Determine if idx or source input:
@@ -115,9 +144,50 @@ def main(pick, view, region, mark):
                     break
             print(ii)
             print(df_plot.loc[ii])
-            plt.plot([df_plot['bp_rp'][ii]], [df_plot['absolutemag'][ii]], 'o', color='green', ms=10)
+            plt.plot([df_plot['bp_rp'][ii]], [df_plot['absolutemag'][ii]], 'o', color='green', ms=12)
         
         plt.show()
+
+    if markgroup:
+        assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/InterestingSources/IS.csv"))
+        df_IS = pd.read_csv("/home/dmrowan/WhiteDwarfs/InterestingSources/IS.csv")
+        for idx in range(len(df_IS['MainID'])):
+
+            #Define color and labelnum
+            labelnum = df_IS['labelnum'][idx]
+            if df_IS['type'][idx] == 'Pulsator':
+                typecolor = 'red'
+            elif df_IS['type'][idx] == 'KnownPulsator':
+                typecolor = 'green'
+            else:
+                typecolor = 'blue'
+
+            #Iterate through points, selecting subplot and marking based on type
+            for i in range(len(df_plot['source'])):
+                if df_plot['source'][i] == df_IS['MainID'][idx]:
+                    print(df_plot.loc[i])
+                    ax1.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=100, label='_nolegend_')
+                    if (df_plot['bp_rp'][i] > -.022 ) and (df_plot['bp_rp'][i] < .16) and (df_plot['absolutemag'][i] < 12.65) and (df_plot['absolutemag'][i] > 11.35):
+                        ax2.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=100, label='_nolegend_')
+                        #Include anotations w/ num label
+                        ax2.annotate(str(labelnum), (df_plot['bp_rp'][i], df_plot['absolutemag'][i]), fontsize=12.5)
+                    else:
+                        ax1.annotate(str(labelnum), (df_plot['bp_rp'][i], df_plot['absolutemag'][i]), fontsize=12.5)
+
+        #Additional plotting params
+        ax1.plot([-.022, -.022, .16, .16, -.022], [12.65, 11.35, 11.35, 12.65, 12.65], color='black', ls='--', lw=4)
+        ax1.scatter(x=0, y=0, c='red', s=100, label='Pulsator')
+        ax1.scatter(x=0, y=0, c='green', s=100, label='KnownPulastor')
+        ax1.scatter(x=0, y=0, c='blue', s=100, label='Eclipse')
+        ax1.legend(loc=3, fontsize=15, scatterpoints=1)
+     
+        #Artist connecting point for zoom window
+        con1 = ConnectionPatch(xyA=(.16,11.35), xyB=(-.022, 11.35), coordsA="data", coordsB="data", axesA=ax1, axesB=ax2, color='black', ls='--')
+        con2 = ConnectionPatch(xyA=(.16, 12.65), xyB=(-.022, 12.65), coordsA="data", coordsB="data", axesA=ax1, axesB=ax2, color='black', ls='--')
+        ax1.add_artist(con1)
+        ax1.add_artist(con2)
+
+        fig.savefig("/home/dmrowan/WhiteDwarfs/InterestingSources/CMDplot.pdf")
     #Grab specific point
     elif pick:
         pick_point = plt.ginput(1, show_clicks=True)[0]
@@ -189,6 +259,7 @@ if __name__ == '__main__':
     parser.add_argument("--view", help="View pdf of selected source", default=False, action='store_true')
     parser.add_argument("--region", help="Draw a box and grab info on all sources in region", default=False, action='store_true')
     parser.add_argument("--mark", help="Input either the idx of a source (in AllData) or its actual name and mark it's position on the CMD", default=None, type=str)
+    parser.add_argument("--markgroup", help="Using this to make plots for paper", default=False, action='store_true')
     args= parser.parse_args()
 
-    main(args.pick, args.view, args.region, args.mark)
+    main(args.pick, args.view, args.region, args.mark, args.markgroup)
