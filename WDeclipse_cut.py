@@ -13,7 +13,7 @@ from WDranker_2 import badflag_bool
 #Dom Rowan REU 2018
 
 desc="""
-Search for pulsations in sources with eclipse. Use window to choose eclipse start and end points
+WDeclipse_cut.py: Search for pulsations in sources with eclipse. Use window to choose eclipse start and end points
 """
 #Main plotting function
 def main(csvname):
@@ -197,7 +197,6 @@ def main(csvname):
             fig = plt.figure(df_number, figsize=(16,12))
             gs.GridSpec(2,2)
             fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-
             #Subplot for LC
             plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
             #Convert to JD here as well
@@ -216,10 +215,11 @@ def main(csvname):
                 plt.axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
 
             eclipsepoints = plt.ginput(2, show_clicks=True)
+            print(eclipsepoints)
             for point in eclipsepoints:
                 point_jd = point[0]
-                plt.axvline(x=point_jd, ls='--', alpha=.25)
-
+                #plt.axvline(x=point_jd, ls='--', alpha=.25)
+        
             #Figure out where to cutoff periodogram#
             point_jd_start = eclipsepoints[0][0]
             idx_jd_start = np.where(np.array(abs(jd_t_mean - point_jd_start)) == np.min(abs(jd_t_mean - point_jd_start)))[0][0]
@@ -227,7 +227,7 @@ def main(csvname):
             point_jd_end = eclipsepoints[1][0]
             idx_jd_end = np.where(np.array(abs(jd_t_mean - point_jd_end)) == np.min(abs(jd_t_mean - point_jd_end)))[0][0]
             plt.axvline(x=jd_t_mean[idx_jd_end])
-
+            plt.ylim(ymax=2)
             #Figure out if we have more data before or after eclipse
             if len(t_mean[:idx_jd_start]) > len(t_mean[idx_jd_end:]):
                 print("More data before eclipse")
