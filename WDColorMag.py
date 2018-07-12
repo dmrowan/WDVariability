@@ -8,6 +8,9 @@ import argparse
 import pandas as pd
 from math import sqrt
 from WDviewer import selectidx
+from matplotlib.patheffects import withStroke
+from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+import matplotlib.font_manager
 
 #Dom Rowan REU 2018
 
@@ -16,7 +19,7 @@ WDColorMag: Produce color mag plot with shading based on best rank. Used to help
 """
 
 #Main Plotting function:
-def main(pick, view, region, mark, markgroup):
+def main(pick, view, region, mark, markgroup, ppuls):
     #Path assertions
     assert(os.path.isfile("Output/AllData.csv"))
     assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"))
@@ -96,8 +99,8 @@ def main(pick, view, region, mark, markgroup):
 
     #Different plotting parameters. Using markgroup for paper plot generation
     if markgroup:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-        fig.tight_layout(rect=[.03, 0.03, 1, 1])
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+        fig.tight_layout(rect=[.03, 0.1, 1, 1])
         fig.subplots_adjust(wspace=.125)
         ax1.scatter(df_plot['bp_rp'], df_plot['absolutemag'], c='gray', alpha=.5, label='_nolegend_')
         ax2.scatter(df_plot['bp_rp'], df_plot['absolutemag'], c='gray', alpha=.5, label='_nolegend_')
@@ -107,17 +110,26 @@ def main(pick, view, region, mark, markgroup):
         ax1.colorbar().set_label("Rank", fontsize=20)
         plt.title("Gaia CMD \n Sources not included: {}".format(no_gaia_data_counter), fontsize=20)
 
-    ax1.set_ylim(ymin=15, ymax=5.75)
-    ax1.set_xlim(xmin=-.85, xmax=.65)
+    ymin_val1 = 15
+    ymax_val1 = 5.75
+    xmin_val1 = -.85
+    xmax_val1 = .65
+    ax1.set_ylim(ymin=ymin_val1, ymax=ymax_val1)
+    ax1.set_xlim(xmin=xmin_val1, xmax=xmax_val1)
     ax1.minorticks_on()
     ax1.yaxis.set_ticks_position('both')
     ax1.xaxis.set_ticks_position('both')
     ax1.tick_params(direction='in', which='both', labelsize=15)
     ax1.tick_params('both', length=8, width=1.8, which='major')
     ax1.tick_params('both', length=4, width=1, which='minor')
-    ax1.set_xlabel("Gaia Color BP-RP", fontsize=15)
-    ax1.set_ylabel("Absolute Gaia GMag", fontsize=15)
-    
+    ax1.set_xlabel("Gaia Color BP-RP (mag)", fontsize=20)
+    ax1.set_ylabel("Absolute Gaia G (mag)", fontsize=20)
+
+    myeffect = withStroke(foreground="k", linewidth=1.5)
+    txtkwargs = dict(path_effects=[myeffect])
+    myeffectw = withStroke(foreground="black", linewidth=2)
+    txtkwargsw = dict(path_effects=[myeffectw])
+
     #Second subplot params
     if markgroup:
         ax2.set_ylim(ymin=12.65, ymax=11.35)
@@ -128,7 +140,7 @@ def main(pick, view, region, mark, markgroup):
         ax2.tick_params(direction='in', which='both', labelsize=15)
         ax2.tick_params('both', length=8, width=1.8, which='major')
         ax2.tick_params('both', length=4, width=1, which='minor')
-        ax2.set_xlabel("Gaia Color BP-RP", fontsize=15)
+        ax2.set_xlabel("Gaia Color BP-RP (mag)", fontsize=20)
 
     if mark is not None:
         #Determine if idx or source input:
@@ -151,34 +163,52 @@ def main(pick, view, region, mark, markgroup):
     if markgroup:
         assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/InterestingSources/IS.csv"))
         df_IS = pd.read_csv("/home/dmrowan/WhiteDwarfs/InterestingSources/IS.csv")
+
+        if ppuls:
+            assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/InterestingSources/IS_possible.csv"))
+            df_ppuls = pd.read_csv("/home/dmrowan/WhiteDwarfs/InterestingSources/IS_possible.csv")
+            df_IS = df_IS.append(df_ppuls, ignore_index=True)
+            
         for idx in range(len(df_IS['MainID'])):
 
             #Define color and labelnum
             labelnum = df_IS['labelnum'][idx]
-            if df_IS['type'][idx] == 'Pulsator':
-                typecolor = 'red'
-            elif df_IS['type'][idx] == 'KnownPulsator':
-                typecolor = 'green'
+            if len(str(labelnum)) == 2:
+                cpad = .3
             else:
-                typecolor = 'blue'
+                cpad = .45
+
+            if df_IS['type'][idx] == 'Pulsator':
+                typecolor = 'xkcd:red'
+            elif df_IS['type'][idx] == 'KnownPulsator':
+                typecolor = 'xkcd:violet'
+            elif df_IS['type'][idx] == 'Eclipse':
+                typecolor = 'xkcd:azure'
+            else:
+                assert(df_IS['type'][idx] == 'Possible')
+                typecolor = 'xkcd:orange'
 
             #Iterate through points, selecting subplot and marking based on type
             for i in range(len(df_plot['source'])):
                 if df_plot['source'][i] == df_IS['MainID'][idx]:
                     print(df_plot.loc[i])
-                    ax1.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=100, label='_nolegend_')
+                    #ax1.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=200, label='_nolegend_')
                     if (df_plot['bp_rp'][i] > -.022 ) and (df_plot['bp_rp'][i] < .16) and (df_plot['absolutemag'][i] < 12.65) and (df_plot['absolutemag'][i] > 11.35):
-                        ax2.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=100, label='_nolegend_')
+                        #ax2.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=200, label='_nolegend_')
                         #Include anotations w/ num label
-                        ax2.annotate(str(labelnum), (df_plot['bp_rp'][i], df_plot['absolutemag'][i]), fontsize=12.5)
-                    else:
-                        ax1.annotate(str(labelnum), (df_plot['bp_rp'][i], df_plot['absolutemag'][i]), fontsize=12.5)
+                        #ax2.annotate(str(labelnum), (df_plot['bp_rp'][i], df_plot['absolutemag'][i]), fontsize=12.5)
+                        ax2.text(df_plot['bp_rp'][i], df_plot['absolutemag'][i], str(labelnum),  horizontalalignment='center', verticalalignment='center', weight='normal', fontsize=12.5, **txtkwargsw, zorder=4, color=typecolor)
+                    #else:
+                        #ax1.annotate(str(labelnum), (df_plot['bp_rp'][i], df_plot['absolutemag'][i]), fontsize=12.5)
+                    ax1.text(df_plot['bp_rp'][i], df_plot['absolutemag'][i], str(labelnum),  horizontalalignment='center', verticalalignment='center', weight='normal', fontsize=12.5, **txtkwargsw, zorder=4, color=typecolor)
 
         #Additional plotting params
         ax1.plot([-.022, -.022, .16, .16, -.022], [12.65, 11.35, 11.35, 12.65, 12.65], color='black', ls='--', lw=4)
-        ax1.scatter(x=0, y=0, c='red', s=100, label='Pulsator')
-        ax1.scatter(x=0, y=0, c='green', s=100, label='KnownPulastor')
-        ax1.scatter(x=0, y=0, c='blue', s=100, label='Eclipse')
+        ax1.scatter(x=0, y=0, c='xkcd:red', s=100, label='Pulsator')
+        ax1.scatter(x=0, y=0, c='xkcd:violet', s=100, label='KnownPulastor')
+        ax1.scatter(x=0, y=0, c='xkcd:azure', s=100, label='Eclipse')
+        if ppuls:
+            ax1.scatter(x=0, y=0, c='xkcd:orange', s=100, label='Possible')
         ax1.legend(loc=3, fontsize=15, scatterpoints=1)
      
         #Artist connecting point for zoom window
@@ -187,7 +217,11 @@ def main(pick, view, region, mark, markgroup):
         ax1.add_artist(con1)
         ax1.add_artist(con2)
 
-        fig.savefig("/home/dmrowan/WhiteDwarfs/InterestingSources/CMDplot.pdf")
+        if ppuls:
+            fig.savefig("/home/dmrowan/WhiteDwarfs/InterestingSources/CMDplot_ppuls.pdf")
+        else:
+            fig.savefig("/home/dmrowan/WhiteDwarfs/InterestingSources/CMDplot.pdf")
+        
     #Grab specific point
     elif pick:
         pick_point = plt.ginput(1, show_clicks=True)[0]
@@ -260,6 +294,7 @@ if __name__ == '__main__':
     parser.add_argument("--region", help="Draw a box and grab info on all sources in region", default=False, action='store_true')
     parser.add_argument("--mark", help="Input either the idx of a source (in AllData) or its actual name and mark it's position on the CMD", default=None, type=str)
     parser.add_argument("--markgroup", help="Using this to make plots for paper", default=False, action='store_true')
+    parser.add_argument("--ppuls", help="Generate plot using possible pulsators", default=False, action='store_true')
     args= parser.parse_args()
 
-    main(args.pick, args.view, args.region, args.mark, args.markgroup)
+    main(args.pick, args.view, args.region, args.mark, args.markgroup, args.ppuls)
