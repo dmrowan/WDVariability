@@ -14,7 +14,11 @@ from gPhoton import gphoton_utils
 #Dom Rowan REU 2018
 
 
-#Function to read in ASASSN data - even weird tables 
+desc="""
+WDranker_2.py: produces the ranked value c for a single source dependent on exposure, periodicity, autocorrelation, and other statistical measures
+"""
+
+#function to read in asassn data - even weird tables 
 def readASASSN(path):
     jd_list = []
     mag_list = []
@@ -64,15 +68,19 @@ def badflag_bool(x):
     return False
 
 #Main ranking function
-def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_magfit, comment):
+def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_magfit, comment):
     ###Path assertions###
     catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
-    sigmamag_path = "Catalog/SigmaMag_reduced.csv"
-    sigmamag_percentile_path = "Catalog/magpercentiles.csv"
+    sigmamag_path_NUV = "Catalog/SigmaMag_NUV.csv"
+    sigmamag_percentile_path_NUV = "Catalog/magpercentiles_NUV.csv"
+    sigmamag_path_FUV = "Catalog/SigmaMag_FUV.csv"
+    sigmamag_percentile_path_FUV = "Catalog/magpercentiles_FUV.csv"
     assert(os.path.isfile(csvname))
     assert(os.path.isfile(catalogpath))
-    assert(os.path.isfile(sigmamag_path))
-    assert(os.path.isfile(sigmamag_percentile_path))
+    assert(os.path.isfile(sigmamag_path_NUV))
+    assert(os.path.isfile(sigmamag_percentile_path_NUV))
+    assert(os.path.isfile(sigmamag_path_FUV))
+    assert(os.path.isfile(sigmamag_percentile_path_FUV))
     assert(os.path.isdir('PDFs'))
     assert(os.path.isdir('Output'))
 
@@ -103,7 +111,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     alldata = pd.read_csv(csvpath)
     ###Alldata table corrections###
     #Drop rows with > 10e10 in cps, cps_err, cps < .5
-    idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) | (alldata['counts'] > 100000) )[0]
+    idx_high_cps = np.where( (alldata['cps_bgsub'] > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) | (alldata['counts'] > 100000)  | (alldata['cps_bgsub'] < -10000) )[0]
     if len(idx_high_cps) != 0:
         alldata = alldata.drop(index = idx_high_cps)
         alldata = alldata.reset_index(drop=True)
@@ -129,7 +137,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         allflaggedratio = float(n_flagged) / float(n_rows)
 
     ###Apparent Magnitude### - could also be done using conversion from flux 
-    m_ab = np.nanmean(alldata['mag_bgsub'])
+    m_ab = np.nanmedian(alldata['mag_bgsub'])
     sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
     #Calculate c_mag based on ranges:
     if m_ab > 13 and m_ab < 25:
@@ -140,17 +148,25 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     magdic = {"mag":[m_ab], "sigma":[sigma_mag_all], "weight":[1]}
 
     #Read in mag percentile information
-    percentile_df = pd.read_csv(sigmamag_percentile_path)
+    if band == 'NUV':
+        percentile_df = pd.read_csv(sigmamag_percentile_path_NUV)
+    else:
+        assert(band == 'FUV')
+        percentile_df = pd.read_csv(sigmamag_percentile_path_FUV)
+
     magbins = percentile_df['magbin']
     magbins = np.array(magbins)
     percentile50 = percentile_df['median']
+    lowerbound = percentile_df['lower']
     upperbound = percentile_df['upper']
     if m_ab < 20.75:
         sigmamag_idx = np.where(abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
-        sigmafit_val = float(percentile50[sigmamag_idx])
+        sigmafit_val = float(lowerbound[sigmamag_idx])
         sigmafit_val_upper = float(upperbound[sigmamag_idx])
         if sigma_mag_all > sigmafit_val and sigma_mag_all < sigmafit_val_upper:
             c_magfit = sigma_mag_all / sigmafit_val
+        elif sigma_mag_all >= sigmafit_val_upper:
+            c_magfit = sigmafit_val_upper / sigmafit_val
         else:
             c_magfit = 0
     else:
@@ -173,14 +189,20 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         print("Generating additional LC data for " + band_other + " band")
         alldata_other = pd.read_csv(csvpath_other)
         #Drop bad rows, flagged rows
-        idx_high_cps_other = np.where( (abs(alldata_other['cps_bgsub']) > 10e10) | (alldata_other['cps_bgsub_err'] > 10e10) | (alldata_other['counts'] < 1) | (alldata_other['counts'] > 100000) )[0]
+        idx_high_cps_other = np.where( (alldata_other['cps_bgsub'] > 10e10) | (alldata_other['cps_bgsub_err'] > 10e10) | (alldata_other['counts'] < 1) | (alldata_other['counts'] > 100000)  | (alldata_other['cps_bgsub'] < -10000) )[0]
         #Not interested in looking at red/blue points for other band
             #drop flagged, expt < 10
         idx_other_flagged_bool = [ badflag_bool(x) for x in alldata_other['flags'] ]
         idx_other_flagged = np.where(np.array(idx_other_flagged_bool) == True)[0]
         idx_other_expt = np.where(alldata_other['exptime'] < 10)[0]
+        
         idx_other_todrop = np.unique(np.concatenate([idx_high_cps_other, idx_other_flagged, idx_other_expt]))
         alldata_other = alldata_other.drop(index=idx_other_todrop)
+        alldata_other = alldata_other.reset_index(drop=True)
+
+        stdev_other = np.std(alldata_other['flux_bgsub'])
+        idx_fivesigma_other = np.where( (alldata_other['flux_bgsub'] - np.nanmean(alldata_other['flux_bgsub'])) > 5*stdev_other )[0]
+        alldata_other = alldata_other.drop(index=idx_fivesigma_other)
         alldata_other = alldata_other.reset_index(drop=True)
 
         #Fix rows with weird t_mean time
@@ -194,10 +216,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
         #Make correction for relative scales
         alldata_tmean_other = alldata_other['t_mean']
-        alldata_cps_bgsub_other = alldata_other['cps_bgsub']
-        alldata_mediancps_other = np.median(alldata_cps_bgsub_other)
-        alldata_cps_bgsub_other = ( alldata_cps_bgsub_other / alldata_mediancps_other ) - 1.0
-        alldata_cps_bgsub_err_other = alldata_other['cps_bgsub_err'] / alldata_mediancps_other
+        alldata_flux_bgsub_other = alldata_other['flux_bgsub']
+        alldata_medianflux_other = np.median(alldata_flux_bgsub_other)
+        alldata_flux_bgsub_other = (( alldata_flux_bgsub_other / alldata_medianflux_other ) - 1.0) * 1000
+        alldata_flux_bgsub_err_other = (alldata_other['flux_bgsub_err'] / alldata_medianflux_other) * 1000
 
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
@@ -268,11 +290,13 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     ###Create lists to fill### - these will be the primary output of main()
     df_number = 1
     c_vals = []
+    c_ws_vals = []
     df_numbers_run = []
     biglc_time = []
     biglc_counts = []
     biglc_err = []
     strongest_periods_list = []
+    ditherperiod_exists = False
 
     ###Loop through each exposure group###
     for df in data:
@@ -291,12 +315,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
 
-        #Find indicies of data above 5 sigma of mean (counts per second column), flagged points, and points with
+        #Find indicies of data above 5 sigma of mean , flagged points, and points with
         # less than 10 seconds of exposure time
-        #These colors are not at all accurate redpoints --> grey, bluepoints --> green
-        #I just didn't want to change all the variable names. I'm not that good at vim.
-        stdev = np.std(df['cps_bgsub'])
-        bluepoints = np.where( (df['cps_bgsub'] - np.nanmean(df['cps_bgsub'])) > 5*stdev )[0]
+        stdev = np.std(df['flux_bgsub'])
+        bluepoints = np.where( (df['flux_bgsub'] - np.nanmean(df['flux_bgsub'])) > 5*stdev )[0]
         flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
         redpoints1 = np.where(np.array(flag_bool_vals) == True)[0]
         redpoints2 = np.where(df['exptime'] < 10)[0]
@@ -306,10 +328,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
         droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
         flagged_ratio = len(droppoints) / df.shape[0]
-        if flagged_ratio > .25:
-            c_flagged = -1
-        else:
-            c_flagged = 0
+        c_flagged = -1*flagged_ratio
         df_reduced = df.drop(index=droppoints)
         df_reduced = df_reduced.reset_index(drop=True)
         
@@ -325,12 +344,14 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             continue
 
         #If first point is not within 3 sigma, remove
-        if (df_reduced['cps_bgsub'][df_reduced.index[0]] - np.nanmean(df['cps_bgsub'])) > 3*stdev:
+        if (df_reduced['flux_bgsub'][df_reduced.index[0]] - np.nanmean(df['flux_bgsub'])) > 3*stdev:
             df_reduced = df_reduced.drop(index=df_reduced.index[0])
+            df_reduced = df_reduced.reset_index(drop=True)
 
         #If last point is not within 3 sigma, remove
-        if (df_reduced['cps_bgsub'][df_reduced.index[-1]] - np.nanmean(df['cps_bgsub'])) > 3*stdev:
+        if (df_reduced['flux_bgsub'][df_reduced.index[-1]] - np.nanmean(df['flux_bgsub'])) > 3*stdev:
             df_reduced = df_reduced.drop(index=df_reduced.index[-1])
+            df_reduced = df_reduced.reset_index(drop=True)
 
         ###Grab magnitude information###
         df_m_ab = np.nanmean(df_reduced['mag_bgsub'])
@@ -340,43 +361,49 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         magdic["sigma"].append(df_sigma_mag)
         magdic["weight"].append(.25)
         
-        #Get the cps_bgsub, error and time columns and make correction for relative scales
-        #Standard deviation divided by the median of the error as an interesting thing. Should be significantly above 1. Might be a good way to quickly see whats varying 
-        cps_bgsub = df_reduced['cps_bgsub']
-        cps_bgsub_median = np.median(cps_bgsub)
-        cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
-        cps_bgsub_err = df_reduced['cps_bgsub_err'] / cps_bgsub_median
+        #Get the flux_bgsub, error and time columns and make correction for relative scales
+        flux_bgsub = df_reduced['flux_bgsub']
+        flux_bgsub_median = np.median(flux_bgsub)
+        flux_bgsub = (( flux_bgsub / flux_bgsub_median ) - 1.0) * 1000
+        flux_bgsub_err = (df_reduced['flux_bgsub_err'] / flux_bgsub_median) * 1000
         t_mean = df_reduced['t_mean']
-
+        
         #If we have data in the other band, find points corresponding to this exposure group
         #First get the indicies corresponding to this group in the other band
         if other_band_exists:
             idx_exposuregroup_other = np.where( (alldata_tmean_other > firsttime) & (alldata_tmean_other < lasttime))[0]
-            t_mean_other = alldata_tmean_other[idx_exposuregroup_other] - firsttime_mean
-            cps_bgsub_other = alldata_cps_bgsub_other[idx_exposuregroup_other]
-            cps_bgsub_err_other = alldata_cps_bgsub_err_other[idx_exposuregroup_other]
+            t_mean_other = np.array(alldata_tmean_other[idx_exposuregroup_other] - firsttime_mean)
+            flux_bgsub_other = np.array(alldata_flux_bgsub_other[idx_exposuregroup_other])
+            flux_bgsub_err_other = np.array(alldata_flux_bgsub_err_other[idx_exposuregroup_other])
+            idx_flux_nan_other = np.where(np.isnan(flux_bgsub_other))[0]
+            if len(idx_flux_nan_other) != 0:
+                t_mean_other = np.delete(t_mean_other, idx_flux_nan_other)
+                flux_bgsub_other = np.delete(flux_bgsub_other, idx_flux_nan_other)
+                flux_bgsub_err_other = np.delete(flux_bgsub_err_other, idx_flux_nan_other)
 
+        if df_number == 6:
+            print(flux_bgsub_other)
         #Make the correction for relative scales for redpoints and bluepoints
         if len(redpoints) != 0:
-            cps_bgsub_red = df['cps_bgsub'][redpoints]
-            cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median) - 1.0
-            cps_bgsub_err_red = df['cps_bgsub_err'][redpoints] / cps_bgsub_median
+            flux_bgsub_red = df['flux_bgsub'][redpoints]
+            flux_bgsub_red = ((flux_bgsub_red / flux_bgsub_median) - 1.0) * 1000
+            flux_bgsub_err_red = (df['flux_bgsub_err'][redpoints] / flux_bgsub_median) * 1000
             t_mean_red = df['t_mean'][redpoints]
         if len(bluepoints) != 0:
-            cps_bgsub_blue = df['cps_bgsub'][bluepoints]
-            cps_bgsub_blue = (cps_bgsub_blue / cps_bgsub_median) - 1.0
-            cps_bgsub_err_blue = df['cps_bgsub_err'][bluepoints] / cps_bgsub_median
+            flux_bgsub_blue = df['flux_bgsub'][bluepoints]
+            flux_bgsub_blue = ((flux_bgsub_blue / flux_bgsub_median) - 1.0) * 1000
+            flux_bgsub_err_blue = (df['flux_bgsub_err'][bluepoints] / flux_bgsub_median) * 1000
             t_mean_blue = df['t_mean'][bluepoints]
 
         ###Additional metric### - Ratio of std / sigma
-        #cps_std = np.std(df_reduced['cps_bgsub'])
-        #median_error = np.median(df_reduced['cps_bgsub_err'])
-        #c_uncertainty = cps_std / median_error
+        #flux_std = np.std(df_reduced['flux_bgsub'])
+        #median_error = np.median(df_reduced['flux_bgsub_err'])
+        #c_uncertainty = flux_std / median_error
 
 
         ###Periodogram Creation###
         #Fist do the periodogram of the data
-        ls = LombScargle(t_mean, cps_bgsub)
+        ls = LombScargle(t_mean, flux_bgsub)
         freq, amp = ls.autopower(nyquist_factor=1)
         
         #Periodogram for dither information
@@ -419,18 +446,23 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
                 for tup in bad_detrad:
                     if ( f > tup[0] ) and ( f < tup[1] ):
                         hits+=1
-
+                        ditherperiod_exists = True
                 #If hits is still 0, the peak isnt in any of the bad ranges
                 if hits == 0:
                     sspeaks.append( (f, a, fapval, ratio) ) 
 
+        #This is a crude way to ensure we don't get any dither harmonics
+        if ditherperiod_exists:
+            sspeaks = []
         #Grab the info to show the strongest peak for the source
         if len(sspeaks) != 0:
             sspeaks_amp = [ peak[1] for peak in sspeaks ] 
-            sspeaks_freq = [ peak[0] for peak in sspeaks ] 
+            sspeaks_freq = [ peak[0] for peak in sspeaks ]
+            sspeaks_fap = [ peak[2] for peak in sspeaks ] 
             sspeaks_ratio = [ peak[3] for peak in sspeaks ]
             strongest_freq = (sspeaks_freq[np.where(np.asarray(sspeaks_amp) == max(sspeaks_amp))[0][0]])
             strongest_period_ratio = (sspeaks_ratio[np.where(np.asarray(sspeaks_amp)==max(sspeaks_amp))[0][0]])
+            strongest_period_fap = (sspeaks_fap[np.where(np.asarray(sspeaks_amp)==max(sspeaks_amp))[0][0]])
             strongest_period = 1.0 / strongest_freq
             strongest_periods_list.append((strongest_period[0], strongest_period_ratio))
 
@@ -442,39 +474,73 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             else:
                 c_periodogram += peak[3]
 
+        #Welch Stetson Variability Metric
+        #Iterate through each time to find if there is a matching time in other band
+        ws_times = [] #Array of tuples t_mean, t_mean_other matching (if exists)
+        ws_flux = [] #Array of flux_bgsub, flux_bgsub_other matching (if exists)
+        ws_flux_err = [] #Array of tuples flux_bgsub_err, flux_bgsub_err_other matching (if exists)
+        ii_previous = 0 #Index to reduce number of iterations 
+        for i in range(len(t_mean)):
+            t = t_mean[i]
+            f = flux_bgsub[i]
+            ferr = flux_bgsub_err[i]
+            matchfound = False
+            if other_band_exists:
+                for ii in range(ii_previous, len(t_mean_other)): 
+                    tother = t_mean_other[ii]
+                    fother = flux_bgsub_other[ii]
+                    ferrother = flux_bgsub_err_other[ii]
+                    if abs(t-tother) < 1.5:
+                        matchfound = True
+                        ws_times.append( (t, tother) )
+                        ws_flux.append( (f, fother) )
+                        ws_flux_err.append( (ferr, ferrother) )
+                        ii_previous = ii
+                        break
+            if matchfound == False:
+                ws_times.append( (t, None) )
+                ws_flux.append( (f, None) )
+                ws_flux_err.append( (ferr, None) )
+
+        assert(len(ws_times) == len(ws_flux) == len(ws_flux_err) == len(t_mean))
+        ws_sum = 0
+        for i in range(len(ws_flux)):
+            fluxtup = ws_flux[i]
+            errtup = ws_flux_err[i]
+            deltaband = (fluxtup[0] - np.nanmean(flux_bgsub)) / errtup[0]
+            if fluxtup[1] is None:
+                deltaother = 1
+            else:
+                assert(other_band_exists)
+                if len(flux_bgsub_other) == 0:
+                    deltaother = 1
+                else:
+                    deltaother = (fluxtup[1] - np.nanmean(flux_bgsub_other)) / errtup[1]
+
+            ws_sum += deltaband*deltaother
+        
+        c_ws = np.sqrt(1/(len(ws_times)*(len(ws_times)-1))) * ws_sum
+
+        #Crude way of making dither not count
+        if ditherperiod_exists:
+            c_ws = 0
+
+        c_ws_vals.append(c_ws)
+
         ###Autocorrelation results###
-        autocorr_result = np.correlate(cps_bgsub, cps_bgsub, mode='full')
+        autocorr_result = np.correlate(flux_bgsub, flux_bgsub, mode='full')
         autocorr_result = autocorr_result[int(autocorr_result.size/2):]
-            
+
         if any(np.isinf(x) for x in autocorr_result):
             print("Infinite Values in Autocorr for group "+str(df_number))
             #Reassign Autocorr_result to be a bunch of zeros
             numberofzeros = len(autocorr_result)
             autocorr_result = np.zeros(numberofzeros)
 
-        '''
-        #I removed this all for now because the autocorr wasn't that useful, and because it brings up alot of errors in test cases
-        ac_x = range(len(autocorr_result))
-        
-        popt, pcov = curve_fit(fitfunc, ac_x, autocorr_result)
-        
-        params = np.polyfit(ac_x, autocorr_result, 1)
-        residuals = autocorr_result - (ac_x*params[0]+params[1])
-        #residuals = autocorr_result - fitfunc(ac_x, *popt)
-
-        ss_res = np.sum(residuals**2)
-        ss_tot = np.sum((autocorr_result-np.nanmean(autocorr_result))**2)
-        if ss_tot == 0:
-            r_squared = 0
-            c_autocorr = 0
-        else:
-            r_squared = 1 - (ss_res / ss_tot)
-            c_autocorr = 1 - r_squared
-        '''
-        c_autocorr = 0
-
         #####GENERATE RATING#####
-        C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_ac * c_autocorr) + (w_mag * c_mag) + (w_flag * c_flagged) + (w_known * c_known) + (w_magfit * c_magfit)
+        C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_mag * c_mag) + (w_flag * c_flagged) + (w_known * c_known) + (w_magfit * c_magfit) + (w_WS * c_ws)
+        if C < 0:
+            C = 0
         print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
@@ -489,26 +555,26 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
         #Convert to JD here as well
         jd_t_mean = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean ]
-        plt.errorbar(jd_t_mean, cps_bgsub, yerr=cps_bgsub_err, color=bandcolors[band], marker='.', ls='', zorder=4, label=band)
-        #plt.errorbar(jd_t_mean, cps_bgsub,  color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
+        plt.errorbar(jd_t_mean, flux_bgsub, yerr=flux_bgsub_err, color=bandcolors[band], marker='.', ls='', zorder=4, label=band)
+        #plt.errorbar(jd_t_mean, flux_bgsub,  color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
         plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
         if len(redpoints) != 0: #points aren't even red now...
             jd_t_mean_red = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
-            plt.errorbar(jd_t_mean_red, cps_bgsub_red, yerr=cps_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
-            #plt.errorbar(jd_t_mean_red, cps_bgsub_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+            plt.errorbar(jd_t_mean_red, flux_bgsub_red, yerr=flux_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
+            #plt.errorbar(jd_t_mean_red, flux_bgsub_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
         if len(bluepoints) != 0: #these points aren't blue either...
             jd_t_mean_blue = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
-            plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, yerr=cps_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
-            #plt.errorbar(jd_t_mean_blue, cps_bgsub_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            plt.errorbar(jd_t_mean_blue, flux_bgsub_blue, yerr=flux_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            #plt.errorbar(jd_t_mean_blue, flux_bgsub_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
         if other_band_exists:
             #introduce offset here
             jd_t_mean_other = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
-            plt.errorbar(jd_t_mean_other, cps_bgsub_other+2*max(cps_bgsub), yerr=cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
-            plt.axhline(y=2*max(cps_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
+            plt.errorbar(jd_t_mean_other, flux_bgsub_other+2*max(flux_bgsub), yerr=flux_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
+            plt.axhline(y=2*max(flux_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
 
         plt.title(band+' light curve')
         plt.xlabel('Time JD')
-        plt.ylabel('Variation in CPS')
+        plt.ylabel('Flux mmi')
         plt.legend(loc=1)
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
@@ -569,8 +635,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         
         #Information for big light curve
         biglc_time.append(np.nanmean(t_mean + firsttime_mean))
-        biglc_counts.append(np.nanmean(cps_bgsub))
-        biglc_err.append(np.std(cps_bgsub_err) / np.sqrt(df_reduced.shape[0]))
+        biglc_counts.append(np.nanmean(flux_bgsub))
+        biglc_err.append(np.std(flux_bgsub_err) / np.sqrt(df_reduced.shape[0]))
 
 
 
@@ -580,10 +646,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         bestrank = max(c_vals)
         idx_best = np.where(np.array(c_vals) == bestrank)[0][0]
         best_expt_group = df_numbers_run[idx_best]
+        c_ws_best = c_ws_vals[idx_best]
     else:
         bestrank = 0
         idx_best = 0
         best_expt_group=0
+        c_ws_best = 0
     print(source, "Total rank: " + str(totalrank), "Best rank: " + str(bestrank), "Best group: " + str(best_expt_group))
 
     ###Commenting/Interactive Mode###
@@ -616,6 +684,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
             "ABmag":[round(m_ab, 2)], 
             "MagUncertainty":[round(c_mag,3)],
             "StrongestPeriod":[period_to_save], 
+            "WS metric":[c_ws_best],
             "SimbadName":[simbad_name],
             "SimbadTypes":[simbad_types],
             "FlaggedRatio":[allflaggedratio],
@@ -638,10 +707,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     alldata = alldata.reset_index(drop=True)
     #Make the correction for relative scales
     alldata_tmean = alldata['t_mean']
-    alldata_cps_bgsub = alldata['cps_bgsub']
-    alldata_mediancps = np.nanmedian(alldata_cps_bgsub)
-    alldata_cps_bgsub = ( alldata_cps_bgsub / alldata_mediancps ) - 1.0
-    alldata_cps_bgsub_err = alldata['cps_bgsub_err'] / alldata_mediancps
+    alldata_flux_bgsub = alldata['flux_bgsub']
+    alldata_medianflux = np.nanmedian(alldata_flux_bgsub)
+    alldata_flux_bgsub = ( alldata_flux_bgsub / alldata_medianflux ) - 1.0
+    alldata_flux_bgsub_err = alldata['flux_bgsub_err'] / alldata_medianflux
 
     #Convert to JD
     alldata_jd_tmean = [ gphoton_utils.calculate_jd(t) for t in alldata_tmean ] 
@@ -665,15 +734,15 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         #Plot total light curve
         plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
         plt.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
-        plt.errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
+        plt.errorbar(alldata_jd_tmean, alldata_flux_bgsub, yerr=alldata_flux_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
         plt.xlabel('Time [s]')
         plt.ylabel('Relative Counts per Second')
         #Plot data in other band
         if other_band_exists:
             print("Plotting additional LC data for " + band_other + " band")
-            plt.errorbar(alldata_jd_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
+            plt.errorbar(alldata_jd_tmean_other, alldata_flux_bgsub_other, yerr=alldata_flux_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
         plt.xlabel('Time [s]')
-        plt.ylabel('Relative Counts per Second')
+        plt.ylabel('Flux MMI')
         plt.legend()
 
         #Plot ASASSN data
@@ -690,10 +759,16 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
 
         plt.errorbar(ASASSN_JD_V, ASASSN_mag_V, yerr=ASASSN_mag_err_V, color='blue', ls='-', label='V band', ecolor='gray')
         plt.errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band', ecolor='gray')
-        maxmag_V = max(ASASSN_mag_V)
-        maxmag_g = max(ASASSN_mag_g)
+        try:
+            maxmag_g = max(ASASSN_mag_g)
+        except:
+            maxmag_g = 20
+        try:
+            minmag_g = min(ASASSN_mag_g)
+        except:
+            minmag_g = 10
         minmag_V = min(ASASSN_mag_V)
-        minmag_g = min(ASASSN_mag_g)
+        maxmag_V = max(ASASSN_mag_V)
         maxmag = max(maxmag_V, maxmag_g)
         minmag = min(minmag_V, minmag_g)
         plt.ylim(maxmag, minmag)
@@ -735,13 +810,13 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
         figall.tight_layout(rect=[0, 0.03, 1, 0.95])
         #Plot total light curve
         axall.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
-        axall.errorbar(alldata_jd_tmean, alldata_cps_bgsub, yerr=alldata_cps_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
+        axall.errorbar(alldata_jd_tmean, alldata_flux_bgsub, yerr=alldata_flux_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
         #Plot data in other band
         if other_band_exists:
             print("Plotting additional LC data for " + band_other + " band")
-            axall.errorbar(alldata_jd_tmean_other, alldata_cps_bgsub_other, yerr=alldata_cps_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
+            axall.errorbar(alldata_jd_tmean_other, alldata_flux_bgsub_other, yerr=alldata_flux_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
         axall.set_xlabel('Time [s]')
-        axall.set_ylabel('Relative Counts per Second')
+        axall.set_ylabel('Flux MMI')
         axall.legend()
 
     #Supertitle
@@ -758,7 +833,11 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     #Get info from sigmamag csv file (from WDsigmamag)
     figall2, axall2 = plt.subplots(2,1,figsize=(16,12))
     figall2.tight_layout(rect=[0, 0.03, 1, 0.95])
-    df_sigmamag = pd.read_csv(sigmamag_path)
+    if band == 'NUV':
+        df_sigmamag = pd.read_csv(sigmamag_path_NUV)
+    else:
+        assert(band == 'FUV')
+        df_sigmamag = pd.read_csv(sigmamag_path_FUV)
     #Pull values, weights
     allmags = df_sigmamag['m_ab']
     allsigma = df_sigmamag['sigma_m']
@@ -854,22 +933,18 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_ac, w_mag, w_known, w_flag, w_
     subprocess.run(['PDFcreator', '-s', source, '-b', band])
 if __name__ == '__main__':
     
-    desc="""
-    This produces the ranked value C for a single source dependent on exposure, periodicity, autocorrelation, and other statistical measures
-    """
-
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("--csvname", help= "Input full csv file", required=True, type=str)
     parser.add_argument("--fap", help = "False alarm probability theshold for periodogram", default=.05, type=float)
     parser.add_argument("--prange", help = "Frequency range for identifying regions in periodogram due to expt and detrad", default=.0005, type=float)
     parser.add_argument("--w_pgram", help = "Weight for periodogram", default = 1, type=float)
-    parser.add_argument("--w_expt", help= "Weight for exposure time", default = .25, type=float)
-    parser.add_argument("--w_ac", help="Weight for autocorrelation", default = 0, type=float)
+    parser.add_argument("--w_expt", help= "Weight for exposure time", default = .20, type=float)
+    parser.add_argument("--w_WS", help="Weight for Welch Stetson variability metric", default = .25, type=float)
     parser.add_argument("--w_mag", help= "Weight for magnitude", default=.5, type=float)
-    parser.add_argument("--w_known", help="Weight for if known binarity, variability, disk, Z spec type", default=2, type=float)
-    parser.add_argument("--w_flag", help="Weight for if more than 25% flagged (subtracted)", default=.5, type=float)
-    parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.25, type=float)
+    parser.add_argument("--w_known", help="Weight for if known binarity, variability, disk, Z spec type", default=.5, type=float)
+    parser.add_argument("--w_flag", help="Weight for flagged ratio", default=-.5, type=float)
+    parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.30, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
     args= parser.parse_args()
 
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_ac=args.w_ac, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, w_magfit=args.w_magfit, comment=args.comment)
+    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_WS=args.w_WS, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, w_magfit=args.w_magfit, comment=args.comment)
