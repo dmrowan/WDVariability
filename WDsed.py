@@ -107,7 +107,7 @@ def main(group):
     assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/InterestingSources/IS.csv"))
     if group:
         assert(os.getcwd() == "/home/dmrowan/WhiteDwarfs/InterestingSources/Pulsator")
-        assert(os.path.isdir("../PulsatorSEDs"))
+        assert(os.path.isdir("../VOSA_seds"))
         sourcenames = os.listdir()
     else:
         assert(os.path.isfile("bbody_sed.dat"))
@@ -125,7 +125,6 @@ def main(group):
     
     #Iterate through sources
     for name in sourcenames:
-        print(name)
         #Pull ID num
         df_IS = pd.read_csv("/home/dmrowan/WhiteDwarfs/InterestingSources/IS.csv")
         idx_IS = np.where(df_IS["MainID"] == name)[0]
@@ -154,6 +153,7 @@ def main(group):
         flux = []
         flux_err = []
         model = []
+        uplim = []
         for line in lines:
             if line.split()[0] != '#' and len(line.split()) != 1:
                 if float(line.split()[4]) < 0:
@@ -164,9 +164,13 @@ def main(group):
                     flux.append(float(line.split()[4]))
                     flux_err.append(float(line.split()[5]))
                     model.append(float(line.split()[6]))
+                    if line.split()[-1] == '1':
+                        uplim.append(1)
+                    else:
+                        uplim.append(0)
 
         #Seperate WISE
-        df = pd.DataFrame({'filter':filtername, 'wavelength':wavelength, 'flux':flux, 'flux_err':flux_err, "model":model})
+        df = pd.DataFrame({'filter':filtername, 'wavelength':wavelength, 'flux':flux, 'flux_err':flux_err, "model":model, "uplim":uplim})
 
         idx_wise = []
         for idx in range(len(df['filter'])):
@@ -177,16 +181,28 @@ def main(group):
         df_wise = df_wise.reset_index(drop=True)
         df = df.drop(index=idx_wise)
         df = df.reset_index(drop=True)
+
         
         #Generate plot
         fig, ax = plt.subplots(1,1, figsize=(16,12))
-        ax.errorbar(df['wavelength'], df['flux'], yerr=df['flux_err'], marker='.',markersize=12, ls='-', ecolor='gray', label='data')
-        ax.errorbar(df_wise['wavelength'], df_wise['flux'], yerr=df_wise['flux_err'], marker='o', color='green', ls='-', ecolor='gray', markersize=8, label='wise data')
+        ax.plot(df['wavelength'], df['flux'],  marker='.',markersize=0, ls='-', label='data')
+        for i in range(len(df['wavelength'])):
+            if df['uplim'][i] == 0:
+                ax.errorbar(df['wavelength'][i], df['flux'][i], yerr=df['flux_err'][i], marker='o', ls='', ecolor='gray', label='_nolegend_', markersize=8)
+            else:
+                ax.errorbar(df['wavelength'][i], df['flux'][i], yerr=df['flux_err'][i], marker='P', ls='', ecolor='gray', markersize=20)
+
+        ax.plot(df_wise['wavelength'], df_wise['flux'], marker='.', markersize=0, ls='-', label='wise data', color='green')
+        for i in range(len(df_wise['wavelength'])):
+            if df_wise['uplim'][i] == 0:
+                ax.errorbar(df_wise['wavelength'][i], df_wise['flux'][i], yerr=df_wise['flux_err'][i], marker='o', color='green', ls='', ecolor='gray', label='_nolegend_', markersize=8)
+            else:
+                ax.errorbar(df_wise['wavelength'][i], df_wise['flux'][i], yerr=df_wise['flux_err'][i], marker='P', color='green', ls='', ecolor='gray', label='_nolegend_', markersize=20)
 
         #Plot model 
         model_wavelength = list(df['wavelength']) + list(df_wise['wavelength'])
         model_flux = list(df['model']) + list(df_wise['model'])
-        ax.plot(model_wavelength, model_flux, marker='.', markersize=12, ls='--', color='purple', label='bbody fit')
+        ax.plot(model_wavelength, model_flux, ls='--', color='purple', label='bbody fit')
         
         #Plot Params
         ax.set_ylim(ymin=10**(round(np.log10(min(flux)), 2)-.5), ymax=10**(round(np.log10(max(flux)), 2)+.5))
@@ -208,7 +224,7 @@ def main(group):
 
 
         if group:
-            fig.savefig("../PulsatorSEDs/"+name+"_bbody.png")
+            fig.savefig("../VOSA_seds/"+name+"_bbody.png")
         else:
             plt.show()
 
