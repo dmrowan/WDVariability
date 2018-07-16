@@ -9,11 +9,12 @@ import subprocess
 
 desc="""
 WDVosaSort: Sort vosa downloads for new pulsators into directory. Pull sed.
+            This version pulls the fit information (bbody and koester)
 """
 
 def main():
     #Path assertions 
-    assert(os.getcwd() == '/home/dmrowan/WhiteDwarfs/InterestingSources/np_vosadownloads')
+    assert(os.getcwd() == '/home/dmrowan/WhiteDwarfs/InterestingSources/puls_vosa')
     assert(os.path.isdir("../Pulsator"))
 
     filenames = []
@@ -27,7 +28,6 @@ def main():
 
     dirs = [ name[:-4] for name in filenames ]
     
-    sourcelist = []
     for dirname in dirs:
         sourcename = os.listdir(dirname+"/objects/")[0]
         if "%2B" in sourcename:
@@ -36,12 +36,15 @@ def main():
             actualsourcename = sourcename.replace("%", "-")
         else:
             actualsourcename = sourcename
-        sourcelist.append(sourcename)
-        subprocess.run(['cp', dirname+"/objects/"+sourcename+"/sed/"+sourcename+".sed.dat", "../Pulsator/"+actualsourcename+"/sed.dat"])
+
+        #subprocess.run(['cp', dirname+"/objects/"+sourcename+"/sed/"+sourcename+".sed.dat", "../Pulsator/"+actualsourcename+"/sed.dat"])
+        subprocess.run(['cp', dirname+"/objects/"+sourcename+"/bestfitp/"+sourcename+".bfit.phot.dat", "../Pulsator/"+actualsourcename+"/bbody_sed.dat"])
+        subprocess.run(['cp', dirname+"/objects/"+sourcename+"/fitp/"+sourcename+".koester2.fit.dat", "../Pulsator/"+actualsourcename+"/koesterparams.dat"])
 
     print("------------------------------------------------------------------")
     for newpulsator in os.listdir("../Pulsator"):
-        if not os.path.isfile("../Pulsator/"+newpulsator+"/sed.dat"):
+        if ((not os.path.isfile("../Pulsator/"+newpulsator+"/bbody_sed.dat"))
+                or (not os.path.isfile("../Pulsator/"+newpulsator+"/koesterparams.dat"))):
             print("No sed found for {}".format(newpulsator))
             print("------------------------------------------------------------------")
 if __name__ == '__main__':
