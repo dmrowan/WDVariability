@@ -46,6 +46,7 @@ def main(ppuls):
     g_list = []
     ra_list = []
     dec_list = []
+    stypes_list = []
     for name in interestingsources:
         nhyphens = len(np.where(np.array(list(name)) == '-')[0])
         if name[0:4] == 'Gaia':
@@ -81,7 +82,11 @@ def main(ppuls):
             g_list.append(bigcatalog['gaia_g_mean_mag'][bigcatalog_idx])
             ra_list.append(bigcatalog['ra'][bigcatalog_idx])
             dec_list.append(bigcatalog['dec'][bigcatalog_idx])
+            stypes_list.append(bigcatalog['SimbadTypes'][bigcatalog_idx])
 
+    ra_list = [ round(val,5) for val in ra_list ]
+    dec_list = [ round(val,5) for val in dec_list ]
+    g_list = [ round(val, 1) for val in g_list ]
     #Query sigmamag csv's go get sigma m, m_ab, and our variability metric NUV
     metric_NUV= []
     sigma_list_NUV = []
@@ -136,19 +141,23 @@ def main(ppuls):
             m_ab_list_FUV.append(m_ab)
             sigma_list_FUV.append(sigma_m)
 
+    metric_FUV = [ round(val, 2) for val in metric_FUV ]
+    metric_NUV = [ round(val, 2) for val in metric_NUV ]
     #Create df, sort values by ra, assign label number for use in plots
     df_output = pd.DataFrame({
-        "MainID":interestingsources,
-        "ra":ra_list, 
-        "dec":dec_list, 
-        "g":g_list, 
-        "type":objecttypes,
-        "metric_NUV":metric_NUV, 
-        "m_ab_NUV":m_ab_list_NUV, 
-        "sigma_m_NUV":sigma_list_NUV,
-        "metric_FUV":metric_FUV, 
-        "m_ab_FUV":m_ab_list_FUV, 
-        "sigma_m_FUV":sigma_list_FUV})
+            "MainID":interestingsources,
+            "ra":ra_list, 
+            "dec":dec_list, 
+            "g":g_list, 
+            "type":objecttypes,
+            "simbad type":stypes_list,
+            "metric_NUV":metric_NUV, 
+            "m_ab_NUV":m_ab_list_NUV, 
+            "sigma_m_NUV":sigma_list_NUV,
+            "metric_FUV":metric_FUV, 
+            "m_ab_FUV":m_ab_list_FUV, 
+            "sigma_m_FUV":sigma_list_FUV
+        })
 
     df_output = df_output.sort_values(by=["ra"])
     df_output['labelnum'] = list(range(len(interestingsources)))
@@ -157,10 +166,28 @@ def main(ppuls):
     else:
         df_output.to_csv("IS.csv", index=False)
 
+def latextable():
+    assert(os.path.isfile("IS.csv"))
+    df = pd.read_csv("IS.csv")
+    df_output = pd.DataFrame({
+            "MainID":df["MainID"],
+            "ID Num":df["labelnum"],
+            "RA":df["ra"],
+            "DEC":df["dec"],
+            "Gaia G":df["g"],
+            "Type":df["type"],
+        })
+    
+    print(df_output.to_latex(index=Fals))
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("--ppuls", help="Create IS_possible.csv which contains information on possible pulsators", default=False, action='store_true')
+    parser.add_argument("--latex", help="Generate latex table", default=False, action='store_true')
     args= parser.parse_args()
 
-    main(ppuls=args.ppuls)
+    if args.latex:
+        latextable()
+    else:
+        main(ppuls=args.ppuls)
