@@ -11,11 +11,13 @@ import matplotlib.image as mpimg
 import matplotlib.gridspec as gs
 import subprocess
 from gPhoton import gphoton_utils
+import math
 #Dom Rowan REU 2018
 
 
 desc="""
-WDranker_2.py: produces the ranked value c for a single source dependent on exposure, periodicity, autocorrelation, and other statistical measures
+WDranker_2.py: produces the ranked value c for a single source dependent on 
+exposure, periodicity, autocorrelation, and other statistical measures
 """
 
 #function to read in asassn data - even weird tables 
@@ -58,7 +60,11 @@ def badflag_bool(x):
         else:
             output_string += '0'
     
-    badflag_vals = output_string[0] + output_string[4] + output_string[7] + output_string[8]
+    badflag_vals = (output_string[0]  
+            + output_string[4]  
+            + output_string[7]  
+            + output_string[8])
+
     for char in badflag_vals:
         if char == '1':
             return True
@@ -68,7 +74,9 @@ def badflag_bool(x):
     return False
 
 #Main ranking function
-def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_magfit, comment):
+def main(csvname, fap, prange, w_pgram,
+         w_expt, w_WS, w_mag, w_known, 
+         w_flag, w_magfit, comment):
     ###Path assertions###
     catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
     sigmamag_path_NUV = "Catalog/SigmaMag_NUV.csv"
@@ -111,13 +119,20 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
     alldata = pd.read_csv(csvpath)
     ###Alldata table corrections###
     #Drop rows with > 10e10 in cps, cps_err, cps < .5
-    idx_high_cps = np.where( (alldata['cps_bgsub'] > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) | (alldata['counts'] > 100000)  | (alldata['cps_bgsub'] < -10000) )[0]
+    idx_high_cps = np.where( (alldata['cps_bgsub'] > 10e10) |
+            (alldata['cps_bgsub_err'] > 10e10) | 
+            (alldata['counts'] < 1) | 
+            (alldata['counts'] > 100000) | 
+            (alldata['cps_bgsub'] < -10000) )[0]
     if len(idx_high_cps) != 0:
         alldata = alldata.drop(index = idx_high_cps)
         alldata = alldata.reset_index(drop=True)
 
     #Fix rows with weird t_means by averaging t0 and t1
-    idx_tmean_fix = np.where( (alldata['t_mean'] < 1) | (alldata['t_mean'] > alldata['t1']) | (np.isnan(alldata['t_mean'])) )[0]
+    idx_tmean_fix = np.where( (alldata['t_mean'] < 1) | 
+            (alldata['t_mean'] > alldata['t1']) | 
+            (np.isnan(alldata['t_mean'])) )[0]
+
     for idx in idx_tmean_fix:
         t0 = alldata['t0'][idx]
         t1 = alldata['t1'][idx]
@@ -138,7 +153,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
 
     ###Apparent Magnitude### - could also be done using conversion from flux 
     m_ab = np.nanmedian(alldata['mag_bgsub'])
-    sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
+    sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1'] 
+            + alldata['mag_bgsub_err_2'])/2.0 )
     #Calculate c_mag based on ranges:
     if m_ab > 13 and m_ab < 25:
         c_mag = m_ab**(-1) * 10
@@ -189,9 +205,11 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         print("Generating additional LC data for " + band_other + " band")
         alldata_other = pd.read_csv(csvpath_other)
         #Drop bad rows, flagged rows
-        idx_high_cps_other = np.where( (alldata_other['cps_bgsub'] > 10e10) | (alldata_other['cps_bgsub_err'] > 10e10) | (alldata_other['counts'] < 1) | (alldata_other['counts'] > 100000)  | (alldata_other['cps_bgsub'] < -10000) )[0]
-        #Not interested in looking at red/blue points for other band
-            #drop flagged, expt < 10
+        idx_high_cps_other = np.where( (alldata_other['cps_bgsub'] > 10e10) | 
+                (alldata_other['cps_bgsub_err'] > 10e10) | 
+                (alldata_other['counts'] < 1) | 
+                (alldata_other['counts'] > 100000)  | 
+                (alldata_other['cps_bgsub'] < -10000) )[0]
         idx_other_flagged_bool = [ badflag_bool(x) for x in alldata_other['flags'] ]
         idx_other_flagged = np.where(np.array(idx_other_flagged_bool) == True)[0]
         idx_other_expt = np.where(alldata_other['exptime'] < 10)[0]
@@ -201,13 +219,16 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         alldata_other = alldata_other.reset_index(drop=True)
 
         stdev_other = np.std(alldata_other['flux_bgsub'])
-        idx_fivesigma_other = np.where( (alldata_other['flux_bgsub'] - np.nanmean(alldata_other['flux_bgsub'])) > 5*stdev_other )[0]
-        alldata_other = alldata_other.drop(index=idx_fivesigma_other)
-        alldata_other = alldata_other.reset_index(drop=True)
+        if len(alldata_other['flux_bgsub']) != 0: 
+            if not alldata_other['flux_bgsub'].isnull().all():
+                idx_fivesigma_other = np.where( (alldata_other['flux_bgsub'] - np.nanmean(alldata_other['flux_bgsub'])) > 5*stdev_other )[0]
+                alldata_other = alldata_other.drop(index=idx_fivesigma_other)
+                alldata_other = alldata_other.reset_index(drop=True)
 
         #Fix rows with weird t_mean time
-        #   (some rows have almost zero t_mean, just average t0 and t1 in those rows)
-        idx_tmean_fix_other = np.where( (alldata_other['t_mean'] < 1) | (alldata_other['t_mean'] > alldata_other['t1']) | (np.isnan(alldata_other['t_mean'])) )[0]
+        idx_tmean_fix_other = np.where( (alldata_other['t_mean'] < 1) | 
+                (alldata_other['t_mean'] > alldata_other['t1']) | 
+                (np.isnan(alldata_other['t_mean'])) )[0]
         for idx in idx_tmean_fix_other:
             t0 = alldata_other['t0'][idx]
             t1 = alldata_other['t1'][idx]
@@ -224,36 +245,43 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
     #Replace hyphens with spaces
-    #Have to deal with replacing hyphens in gaia / other sources differently
+    #Have to deal with replacing hyphens in different designations differently
     nhyphens = len(np.where(np.array(list(source)) == '-')[0])
-    if source[0:4] == 'Gaia':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
+    if ( (source[0:4] == 'Gaia') or
+            (source[0:2] in ['GJ', 'CL', 'V*', 'PN']) or
+            (source[0:3] in ['Ton', 'CL*', 'Cl*', 'RRS', 'MAS']) or
+            (source[0:5] in ['LAWDS']) or
+            ('GMS97' in source) or
+            ('FOCAP' in source) or
+            ('KAB' in source) or
+            ('NCA' in source)):
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
     elif source[0:5] == 'ATLAS':
         bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-    elif source[0:2] == 'GJ':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
-    elif source[0:2] == 'CL':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
     elif source[0:2] == 'LP':
         if nhyphens == 2:
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
+        elif nhyphens == 3:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1)[::-1].replace('-',' ',1)[::-1])[0]
         else:
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-    elif source[0:2] == 'V*':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
     elif source[0:3] == '2QZ':
         bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
-    else:
+    elif source[0:2] == 'BD':
+        if nhyphens == 2:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source[::-1].replace('-', ' ', 1)[::-1])[0]
+        else:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
+    else:   #SDSS sources go in here
         if nhyphens == 1:
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
         else:
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0]
 
-    #Just doing this for now until I figure out how to deal with ^^^ better
     if len(bigcatalog_idx) == 0:
         print(source, "Not in catalog")
-        #with open("../brokensources.txt", 'a') as f:
-        #    f.write(source + "\n")
+        with open("../brokensources.txt", 'a') as f:
+            f.write(source + "\n")
         return
     else:
         bigcatalog_idx = bigcatalog_idx[0]
@@ -285,12 +313,14 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
                 breaks.append(i)
 
     data = np.split(alldata, breaks)
-    print("Dividing " + band + " data for source " + source+ " into "+str(len(data))+" exposure groups")
+    print("Dividing {0} data for {1} into {2} exposure groups".format(band, source, str(len(data))))
 
-    ###Create lists to fill### - these will be the primary output of main()
+    #Initialize Lists
     df_number = 1
     c_vals = []
     c_ws_vals = []
+    c_exp_vals = []
+    c_pgram_vals = []
     df_numbers_run = []
     biglc_time = []
     biglc_counts = []
@@ -308,8 +338,9 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         lasttime = list(df['t1'])[-1]
         firsttime = list(df['t0'])[0]
         exposure = lasttime - firsttime
+        #Exposure metric in ks
         c_exposure = (exposure) / 1000
-
+        c_exp_vals.append(c_exposure)
         ###Dataframe corrections###
         #Reset first time in t_mean to be 0
         firsttime_mean = df['t_mean'][df.index[0]]
@@ -339,7 +370,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
             df_reduced = df_reduced.reset_index(drop=True)
 
         if df_reduced.shape[0] < 10:
-            #print("Not enough points for this exposure group, skipping. Removed " +  str(len(redpoints)) + " bad points")
             df_number +=1
             continue
 
@@ -381,8 +411,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
                 flux_bgsub_other = np.delete(flux_bgsub_other, idx_flux_nan_other)
                 flux_bgsub_err_other = np.delete(flux_bgsub_err_other, idx_flux_nan_other)
 
-        if df_number == 6:
-            print(flux_bgsub_other)
         #Make the correction for relative scales for redpoints and bluepoints
         if len(redpoints) != 0:
             flux_bgsub_red = df['flux_bgsub'][redpoints]
@@ -394,11 +422,6 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
             flux_bgsub_blue = ((flux_bgsub_blue / flux_bgsub_median) - 1.0) * 1000
             flux_bgsub_err_blue = (df['flux_bgsub_err'][bluepoints] / flux_bgsub_median) * 1000
             t_mean_blue = df['t_mean'][bluepoints]
-
-        ###Additional metric### - Ratio of std / sigma
-        #flux_std = np.std(df_reduced['flux_bgsub'])
-        #median_error = np.median(df_reduced['flux_bgsub_err'])
-        #c_uncertainty = flux_std / median_error
 
 
         ###Periodogram Creation###
@@ -433,6 +456,9 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         probabilities = [fap]
         faplevels = ls.false_alarm_level(probabilities)
 
+        ditherfapval = .25
+        ditherfaplevel = ls.false_alarm_level(ditherfapval)
+        ditherperiod_exists=False
         sspeaks = [] #freq,amp,fap tuples
         for a in top5amp:
             #False alarm probability threshold
@@ -450,6 +476,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
                 #If hits is still 0, the peak isnt in any of the bad ranges
                 if hits == 0:
                     sspeaks.append( (f, a, fapval, ratio) ) 
+            elif (fapval > fap) and (fapval <= ditherfapval):
+                idx = np.where(amp==a)[0]
+                f = freq[idx]
+                for tup in bad_detrad:
+                    if (f > tup[0]) and ( f < tup[1] ):
+                        ditherperiod_exists=True
 
         #This is a crude way to ensure we don't get any dither harmonics
         if ditherperiod_exists:
@@ -474,12 +506,17 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
             else:
                 c_periodogram += peak[3]
 
-        #Welch Stetson Variability Metric
-        #Iterate through each time to find if there is a matching time in other band
-        ws_times = [] #Array of tuples t_mean, t_mean_other matching (if exists)
-        ws_flux = [] #Array of flux_bgsub, flux_bgsub_other matching (if exists)
-        ws_flux_err = [] #Array of tuples flux_bgsub_err, flux_bgsub_err_other matching (if exists)
-        ii_previous = 0 #Index to reduce number of iterations 
+        c_pgram_vals.append(c_periodogram)
+
+        """
+        Welch Stetson Variability Metric.
+        Iterate through each time to find if there is a matching time in other band.
+        Initialize lists of tuples (main, other) if exists
+        """
+        ws_times = [] 
+        ws_flux = [] 
+        ws_flux_err = [] 
+        ii_previous = 0     #Index to reduce number of iterations 
         for i in range(len(t_mean)):
             t = t_mean[i]
             f = flux_bgsub[i]
@@ -507,7 +544,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         for i in range(len(ws_flux)):
             fluxtup = ws_flux[i]
             errtup = ws_flux_err[i]
-            deltaband = (fluxtup[0] - np.nanmean(flux_bgsub)) / errtup[0]
+            if math.isnan(errtup[0]):
+                deltaband=0
+            else:
+                deltaband = (fluxtup[0] - np.nanmean(flux_bgsub)) / errtup[0]
             if fluxtup[1] is None:
                 deltaother = 1
             else:
@@ -515,7 +555,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
                 if len(flux_bgsub_other) == 0:
                     deltaother = 1
                 else:
-                    deltaother = (fluxtup[1] - np.nanmean(flux_bgsub_other)) / errtup[1]
+                    if str(errtup[1]) == str(float('NaN')):
+                        deltraother = 1
+                    else:
+                        deltaother = (fluxtup[1] - np.nanmean(flux_bgsub_other)) / errtup[1]
 
             ws_sum += deltaband*deltaother
         
@@ -544,6 +587,8 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
+
+        
 
         ###Generate plot/subplot information###
         fig = plt.figure(df_number, figsize=(16,12))
@@ -598,7 +643,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         plt.xlabel('Freq [Hz]')
         plt.ylabel('Amplitude')
         plt.xlim(0, np.max(freq))
-        plt.ylim(0, np.max(amp)*2)
+        try:
+            plt.ylim(0, np.max(amp)*2)
+        except:
+            print("Issue with periodogram axes")
         if any(np.isnan(x) for x in top5amp_detrad):
             print("No detrad peaks for exposure group " + str(df_number))
         else:
@@ -610,6 +658,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
             idx = np.where(level == faplevels)[0][0]
             fap = probabilities[idx]
             plt.axhline(level, color='black', alpha = .5, ls = '--', label = 'FAP: '+str(fap))
+        plt.axhline(ditherfaplevel, color='black', alpha=.5, ls=':', label = 'FAP: '+str(ditherfapval))
 
         plt.legend()
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -647,11 +696,17 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
         idx_best = np.where(np.array(c_vals) == bestrank)[0][0]
         best_expt_group = df_numbers_run[idx_best]
         c_ws_best = c_ws_vals[idx_best]
+        c_ws_max = max(c_ws_vals)
+        c_exp_max = max(c_exp_vals)
+        c_pgram_max = max(c_pgram_vals)
     else:
         bestrank = 0
         idx_best = 0
         best_expt_group=0
         c_ws_best = 0
+        c_ws_max = 0
+        c_exp_max = 0
+        c_pgram_max = 0
     print(source, "Total rank: " + str(totalrank), "Best rank: " + str(bestrank), "Best group: " + str(best_expt_group))
 
     ###Commenting/Interactive Mode###
@@ -692,6 +747,10 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
             "KnownVariable":[variability], 
             "Binarity":[binarity],
             "Hasdisk":[hasdisk],
+            "c_magfit":[c_magfit],
+            "c_ws_max":[c_ws_max],
+            "c_exp_max":[c_exp_max],
+            "c_pgram_max":[c_pgram_max],
             }
     dfoutput = pd.DataFrame(outputdic)
     dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv", index=False)
@@ -767,11 +826,20 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
             minmag_g = min(ASASSN_mag_g)
         except:
             minmag_g = 10
-        minmag_V = min(ASASSN_mag_V)
-        maxmag_V = max(ASASSN_mag_V)
+        try:
+            minmag_V = min(ASASSN_mag_V)
+        except:
+            minmag_V = 10
+        try:
+            maxmag_V = max(ASASSN_mag_V)
+        except:
+            maxmag_V = 20
         maxmag = max(maxmag_V, maxmag_g)
         minmag = min(minmag_V, minmag_g)
-        plt.ylim(maxmag, minmag)
+        try:    
+            plt.ylim(maxmag, minmag)
+        except:
+            plt.ylim(20, 10)
         plt.xlabel('JD')
         plt.ylabel("V Magnitude")
         plt.title('ASASSN LC')
@@ -880,7 +948,7 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
 
 
     axall2[0].scatter(sourcemags, sourcesigmas, color=rgb_2, zorder=2)
-    axall2[0].scatter(arrow_mag, arrow_sigma, color=rgb_arrow, marker="^", zorder = 3)
+    axall2[0].scatter(arrow_mag, arrow_sigma, color=rgb_arrow, marker="^", zorder=3)
     axall2[0].set_title("Sigma as a function of AB mag")
     axall2[0].set_xlabel("AB mag")
     axall2[0].set_ylabel("Sigma")
@@ -916,10 +984,12 @@ def main(csvname, fap, prange, w_pgram, w_expt, w_WS, w_mag, w_known, w_flag, w_
     {8} \n
     {9} \n
     {10} \n
-    """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), spectype, simbad_name, simbad_types, variability, binarity, hasdisk, period_to_save)
-    #axall2[1].text(.2, .4, information, size=15, horizontalalignment='left', verticalalignment='center')
-    axall2[1].text(.2, 1, information1, size=15, horizontalalignment='left', verticalalignment='top')
-    axall2[1].text(.7, 1, information2, size=15, horizontalalignment='right', verticalalignment='top')
+    """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), 
+               spectype, simbad_name, simbad_types, variability, 
+               binarity, hasdisk, period_to_save
+        )
+    axall2[1].text(.2, 1, information1, size=15, ha='left', va='top')
+    axall2[1].text(.7, 1, information2, size=15, ha='right', va='top')
     axall2[1].axis('off')
 
     all2saveimagepath = str("PDFs/"+source+"-"+band+"all2"+".pdf")
@@ -940,11 +1010,14 @@ if __name__ == '__main__':
     parser.add_argument("--w_pgram", help = "Weight for periodogram", default = 1, type=float)
     parser.add_argument("--w_expt", help= "Weight for exposure time", default = .20, type=float)
     parser.add_argument("--w_WS", help="Weight for Welch Stetson variability metric", default = .25, type=float)
-    parser.add_argument("--w_mag", help= "Weight for magnitude", default=.5, type=float)
+    parser.add_argument("--w_mag", help= "Weight for magnitude", default=0, type=float)
     parser.add_argument("--w_known", help="Weight for if known binarity, variability, disk, Z spec type", default=.5, type=float)
-    parser.add_argument("--w_flag", help="Weight for flagged ratio", default=-.5, type=float)
+    parser.add_argument("--w_flag", help="Weight for flagged ratio", default=.5, type=float)
     parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.30, type=float)
     parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
     args= parser.parse_args()
 
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, w_pgram=args.w_pgram, w_expt=args.w_expt, w_WS=args.w_WS, w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, w_magfit=args.w_magfit, comment=args.comment)
+    main(csvname=args.csvname, fap=args.fap, prange=args.prange, 
+         w_pgram=args.w_pgram, w_expt=args.w_expt, w_WS=args.w_WS,
+         w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, 
+         w_magfit=args.w_magfit, comment=args.comment)
