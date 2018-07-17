@@ -4,42 +4,48 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
+from WDranker_2 import catalog_match
 #Dom Rowan REU 2018
 
 desc="""
-WDAssign: Iterate through interesting sources and generate CSV for use in plot creation. Also assign number for use in labeling.
+WDAssign: Iterate through interesting sources and generate CSV 
+for use in plot creation. Also assign number for use in labeling.
 """
 
 def main(ppuls):
     #Path assertions 
+    prefix = '/home/dmrowan/WhiteDwarfs/'
+    bigcatalog_path = prefix+"Catalogs/MainCatalog_reduced_simbad_asassn.csv"
+    sigmamagpath_NUV = prefix+"GalexData_run5/Catalog/SigmaMag_NUV.csv"
+    sigmamagpath_FUV = prefix+"GalexData_run5/Catalog/SigmaMag_FUV.csv"
+    percentilepath_NUV = prefix+"GalexData_run5/Catalog/magpercentiles_NUV.csv"
+    percentilepath_FUV = prefix+"GalexData_run5/Catalog/magpercentiles_FUV.csv"
     assert(os.getcwd() == '/home/dmrowan/WhiteDwarfs/InterestingSources')
     assert(os.path.isdir("KnownPulsator"))
     assert(os.path.isdir("Pulsator"))
     assert(os.path.isdir("Eclipse"))
     assert(os.path.isdir("PossiblePulsator"))
-    bigcatalog_path = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
     assert(os.path.isfile(bigcatalog_path))
-    sigmamagpath_NUV = "/home/dmrowan/WhiteDwarfs/GalexData_run5/Catalog/SigmaMag_NUV.csv"
-    sigmamagpath_FUV = "/home/dmrowan/WhiteDwarfs/GalexData_run5/Catalog/SigmaMag_FUV.csv"
     assert(os.path.isfile(sigmamagpath_NUV))
     assert(os.path.isfile(sigmamagpath_FUV))
-    percentilepath_NUV = "/home/dmrowan/WhiteDwarfs/GalexData_run5/Catalog/magpercentiles_NUV.csv"
-    percentilepath_FUV = "/home/dmrowan/WhiteDwarfs/GalexData_run5/Catalog/magpercentiles_FUV.csv"
     assert(os.path.isfile(percentilepath_NUV))
     assert(os.path.isfile(percentilepath_FUV))
 
     #Load in source names
-    knownpulsators = [ dirname for dirname in os.listdir("KnownPulsator") ]
-    newpulsators = [ dirname for dirname in os.listdir("Pulsator") ] 
-    eclipses = [ dirname for dirname in os.listdir("Eclipse") ] 
+    knownpulsators = os.listdir("KnownPulsator")
+    newpulsators = os.listdir("Pulsator") 
+    eclipses = os.listdir("Eclipse") 
 
     if ppuls:
-        possiblepulsators = [ dirname for dirname in os.listdir("PossiblePulsator") ] 
+        possiblepulsators = os.listdir("PossiblePulsator") 
         objecttypes = ["Possible"] * len(possiblepulsators)
         interestingsources = possiblepulsators
     else:
         interestingsources = knownpulsators + newpulsators + eclipses
-        objecttypes = ["KnownPulsator"]*len(knownpulsators) + ["Pulsator"]*len(newpulsators) + ["Eclipse"]*len(eclipses)
+        objecttypes = (["KnownPulsator"]*len(knownpulsators) 
+                + ["Pulsator"]*len(newpulsators) 
+                + ["Eclipse"]*len(eclipses)
+            )
 
     #Need to query big catalog for g mag, ra, dec
     bigcatalog = pd.read_csv(bigcatalog_path)
@@ -48,30 +54,7 @@ def main(ppuls):
     dec_list = []
     stypes_list = []
     for name in interestingsources:
-        nhyphens = len(np.where(np.array(list(name)) == '-')[0])
-        if name[0:4] == 'Gaia':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' '))[0]
-        elif name[0:5] == 'ATLAS':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == name)[0]
-        elif name[0:2] == 'GJ':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' '))[0]
-        elif name[0:2] == 'CL':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' '))[0]
-        elif name[0:2] == 'LP':
-            if nhyphens == 2:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' ', 1))[0]
-            else:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == name)[0]
-        elif name[0:2] == 'V*':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' '))[0]
-        elif name[0:3] == '2QZ':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' ', 1))[0]
-        else:
-            if nhyphens == 1:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' ' ))[0]
-            else:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == name.replace('-', ' ',nhyphens-1))[0]
-
+        bigcatalog_idx = catalog_match(name)
         if len(bigcatalog_idx) == 0:
             print(name, "Not in catalog")
             g_list.append("")
@@ -108,7 +91,8 @@ def main(ppuls):
             idx = idx[0]
             m_ab = df_sm_NUV['m_ab'][idx]
             sigma_m = df_sm_NUV['sigma_m'][idx]
-            sigmamag_idx = np.where(abs(m_ab-magbins_NUV) == min(abs(m_ab-magbins_NUV)))[0]
+            absvals = np.array(abs(m_ab-magbins_NUV))
+            sigmamag_idx = np.where(absvals == min(absvals))[0]
             sigmafit_val = float(percentile50_NUV[sigmamag_idx])
             metric_NUV.append(sigma_m / sigmafit_val)
             m_ab_list_NUV.append(m_ab)
@@ -135,7 +119,8 @@ def main(ppuls):
             idx = idx[0]
             m_ab = df_sm_FUV['m_ab'][idx]
             sigma_m = df_sm_FUV['sigma_m'][idx]
-            sigmamag_idx = np.where(abs(m_ab-magbins_FUV) == min(abs(m_ab-magbins_FUV)))[0]
+            absvals = np.array(abs(m_ab-magbins_FUV))
+            sigmamag_idx = np.where(absvals == min(absvals))[0]
             sigmafit_val = float(percentile50_FUV[sigmamag_idx])
             metric_FUV.append(sigma_m / sigmafit_val)
             m_ab_list_FUV.append(m_ab)
@@ -178,13 +163,18 @@ def latextable():
             "Type":df["type"],
         })
     
-    print(df_output.to_latex(index=Fals))
+    with open("IS_latextable.tex", 'w') as f:
+        f.write(df_output.to_latex(index=False))
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument("--ppuls", help="Create IS_possible.csv which contains information on possible pulsators", default=False, action='store_true')
-    parser.add_argument("--latex", help="Generate latex table", default=False, action='store_true')
+    parser.add_argument("--ppuls", 
+            help="Create table for possible pulsators", 
+            default=False, action='store_true')
+    parser.add_argument("--latex", 
+            help="Generate latex table", 
+            default=False, action='store_true')
     args= parser.parse_args()
 
     if args.latex:
