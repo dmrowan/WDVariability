@@ -123,6 +123,7 @@ def main(csvname, fap, prange, w_pgram,
             (alldata['cps_bgsub_err'] > 10e10) | 
             (alldata['counts'] < 1) | 
             (alldata['counts'] > 100000) | 
+            (alldata['flux_bgsub'] < 0) | 
             (alldata['cps_bgsub'] < -10000) )[0]
     if len(idx_high_cps) != 0:
         alldata = alldata.drop(index = idx_high_cps)
@@ -208,7 +209,8 @@ def main(csvname, fap, prange, w_pgram,
         idx_high_cps_other = np.where( (alldata_other['cps_bgsub'] > 10e10) | 
                 (alldata_other['cps_bgsub_err'] > 10e10) | 
                 (alldata_other['counts'] < 1) | 
-                (alldata_other['counts'] > 100000)  | 
+                (alldata_other['counts'] > 100000)  |
+                (alldata_other['flux_bgsub'] < 0) |
                 (alldata_other['cps_bgsub'] < -10000) )[0]
         idx_other_flagged_bool = [ badflag_bool(x) for x in alldata_other['flags'] ]
         idx_other_flagged = np.where(np.array(idx_other_flagged_bool) == True)[0]
@@ -221,7 +223,7 @@ def main(csvname, fap, prange, w_pgram,
         stdev_other = np.std(alldata_other['flux_bgsub'])
         if len(alldata_other['flux_bgsub']) != 0: 
             if not alldata_other['flux_bgsub'].isnull().all():
-                idx_fivesigma_other = np.where( (alldata_other['flux_bgsub'] - np.nanmean(alldata_other['flux_bgsub'])) > 5*stdev_other )[0]
+                idx_fivesigma_other = np.where( abs((alldata_other['flux_bgsub'] - np.nanmean(alldata_other['flux_bgsub']))) > 5*stdev_other )[0]
                 alldata_other = alldata_other.drop(index=idx_fivesigma_other)
                 alldata_other = alldata_other.reset_index(drop=True)
 
@@ -349,7 +351,7 @@ def main(csvname, fap, prange, w_pgram,
         #Find indicies of data above 5 sigma of mean , flagged points, and points with
         # less than 10 seconds of exposure time
         stdev = np.std(df['flux_bgsub'])
-        bluepoints = np.where( (df['flux_bgsub'] - np.nanmean(df['flux_bgsub'])) > 5*stdev )[0]
+        bluepoints = np.where( abs(df['flux_bgsub'] - np.nanmean(df['flux_bgsub'])) > 5*stdev )[0]
         flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
         redpoints1 = np.where(np.array(flag_bool_vals) == True)[0]
         redpoints2 = np.where(df['exptime'] < 10)[0]
