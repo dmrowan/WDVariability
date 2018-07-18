@@ -69,6 +69,12 @@ def main(group):
     afont = {'fontname':'Keraleeyam'}
     arrow = u'$\u2193$'
 
+    if group:
+        dic_koester = {'MainID':[], 
+                       'Teff':[],
+                       'logg':[],
+                       'chi2':[],
+                }
     
     #Iterate through sources
     for name in sourcenames:
@@ -94,6 +100,29 @@ def main(group):
         #Make sure we have right model fit
         assert("Black Body" in lines[6])
 
+        #Koester Params
+        if group:
+            if not os.path.isfile(prefix+'koesterparams.dat'):
+                print("No Koeseter fit found for ", name)
+                Teff=logg=chi2=None
+                
+            else:
+                with open(prefix+'koesterparams.dat') as f2:
+                    klines = f2.readlines()
+
+                kparams = klines[2].split()[1:4]+klines[2].split()[5:]
+                kvalues = klines[5].split()
+                #Make sure we have koester fit
+                assert(kvalues[4]=='koester2')
+                Teff = kvalues[6]
+                logg = kvalues[7]
+                chi2 = kvalues[10]
+        
+            dic_koester['MainID'].append(name)
+            dic_koester['Teff'].append(Teff)
+            dic_koester['logg'].append(logg)
+            dic_koester['chi2'].append(chi2)
+
         #Initialize lists
         filtername = []
         wavelength = []
@@ -117,7 +146,12 @@ def main(group):
                         uplim.append(0)
 
         #Seperate WISE
-        df = pd.DataFrame({'filter':filtername, 'wavelength':wavelength, 'flux':flux, 'flux_err':flux_err, "model":model, "uplim":uplim})
+        df = pd.DataFrame({'filter':filtername, 
+                           'wavelength':wavelength, 
+                           'flux':flux, 
+                           'flux_err':flux_err, 
+                           'model':model, 
+                           'uplim':uplim})
 
         idx_wise = []
         for idx in range(len(df['filter'])):
@@ -134,7 +168,10 @@ def main(group):
         if df_irsa_wise is not None:
             idx_irsa = np.where(df_irsa_wise['MainID'] == name)[0]
             if len(idx_irsa) != 0:
-                dic_irsa['wavelength'] = [33526.0, 46028.0, 115608.0, 220883.0]
+                dic_irsa['wavelength'] = [33526.0, 
+                                          46028.0, 
+                                          115608.0, 
+                                          220883.0]
                 idx_irsa = idx_irsa[0]
                 for bandkey in ['F1', 'F2', 'F3', 'F4']:
                     val = df_irsa_wise[bandkey][idx_irsa]
@@ -144,7 +181,6 @@ def main(group):
                     dic_irsa['flux'].append(val)
                     dic_irsa['flux_err'].append(valerr)
 
-        print(dic_irsa)
         df_irsa = pd.DataFrame(dic_irsa)
 
         #Generate plot
@@ -212,9 +248,12 @@ def main(group):
 
         if group:
             fig.savefig("../VOSA_seds/"+name+"_bbody.png")
+            df_koester = pd.DataFrame(dic_koester)
         else:
             plt.show()
 
+    if group:
+        df_koester.to_csv("/home/dmrowan/WhiteDwarfs/InterestingSources/koesterparams.csv", index=False)
 
 
 
