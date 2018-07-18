@@ -36,7 +36,6 @@ def main(datfile, save):
     #Path assertions
     assert(os.path.isfile(datfile1))
     assert(os.path.isfile(datfile2))
-    assert(os.path.isfile("/home/dmrowan/WhiteDwarfs/InterestingSources/IS.csv"))
 
     #Read in both files
     with open(datfile1) as f:
@@ -67,19 +66,33 @@ def main(datfile, save):
             flux2.append(float(lines2[i].split()[1]))
             flux_err2.append(float(lines2[i].split()[2]))
     
+    middlerange = (int(len(wavelength1)/4), int((3*len(wavelength1)/4)))
     autocorr_result = np.correlate(flux1, flux2, mode='full')
     autocorr_result = autocorr_result[int(autocorr_result.size/2):]
 
-    outputcorr = correlate(flux1, flux2)
+    outputcorr = correlate(flux1[middlerange[0]:middlerange[1]], 
+                           flux2[middlerange[0]:middlerange[1]]
+                    )
     outputcorr = outputcorr[int(len(outputcorr)/2):]
 
     fig, (ax1,ax2, ax3) = plt.subplots(3, 1, figsize=(18,18))
-    ax1.errorbar(wavelength1, flux1, yerr=flux_err1, marker='.',markersize=12, ls='-', ecolor='gray')
-    ax2.errorbar(wavelength2, flux2, yerr=flux_err2, marker='.', markersize=12, ls='-', ecolor='gray')
+    ax1.errorbar(wavelength1, flux1, yerr=flux_err1, marker='.',
+                 markersize=12, ls='-', ecolor='gray'
+            )
+    ax2.errorbar(wavelength2, flux2, yerr=flux_err2, marker='.', 
+                 markersize=12, ls='-', ecolor='gray'
+            )
+    ax1.axvline(x=wavelength1[middlerange[0]], ls='--')
+    ax1.axvline(x=wavelength1[middlerange[1]], ls='--')
+    ax2.axvline(x=wavelength1[middlerange[0]], ls='--')
+    ax2.axvline(x=wavelength1[middlerange[1]], ls='--')
+    
     ax3.plot(outputcorr)
     ax1.set_yscale('log')
     ax2.set_yscale('log')
-    fig.text(.02, .66, 'Flux (ergs/s/cm2/A)', va='center', rotation='vertical', fontsize=30)
+    fig.text(.02, .66, 'Flux (ergs/s/cm2/A)', va='center', 
+             rotation='vertical', fontsize=30
+        )
     ax2.set_xlabel('Wavelength (A)', fontsize=20)
 
     for ax in [ax1, ax2]:
@@ -114,8 +127,10 @@ def main(datfile, save):
 
     hc_annotation = "Heliocentric correction: {} km/s".format(str(round(hc,3)))
 
-    ax3.annotate(hc_annotation, xy=(.75, .95), xycoords='axes fraction', color='xkcd:violet', fontsize=30, horizontalalignment='center', verticalalignment='center', **afont, **txtkwargsw)
-
+    ax3.annotate(hc_annotation, xy=(.75, .95), xycoords='axes fraction', 
+                 color='xkcd:violet', fontsize=30, 
+                 ha='center', ra='center', **afont, **txtkwargsw
+            )
 
     if save:
         fig.savefig(sourcename+"_rvplot.png")
@@ -127,15 +142,19 @@ def heliocorrection(ra, dec, ot):
     location = 'gemini_north'
     uh88  = EarthLocation.of_site(location)
     sc = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
-    heliocorr = sc.radial_velocity_correction('heliocentric', obstime=ot, location=uh88)
+    heliocorr = sc.radial_velocity_correction('heliocentric', 
+                                              obstime=ot, location=uh88
+                                        )
     return(heliocorr.to(u.km/u.s))
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument("--dat", help="Dat file input (give either one)", type=str, required=True)
-    parser.add_argument("--save", help="Save with filename", default=False, action='store_true')
+    parser.add_argument("--dat", help="Dat file input (give either one)",
+                        type=str, required=True)
+    parser.add_argument("--save", help="Save with filename", 
+                        default=False, action='store_true')
     args= parser.parse_args()
 
     main(datfile=args.dat, save=args.save)
