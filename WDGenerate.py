@@ -7,6 +7,7 @@ import WDPlot_eclipse
 import WDColorMag
 import WDsigmamag
 import WDlatexcommands
+import WDmaghist
 #Dom Rowan REU 2018
 
 desc="""
@@ -26,6 +27,9 @@ def main(eclipsegenerate):
 
     #Run WDPlot_eclipse.py
     WDPlot_eclipse.main(eclipsegenerate)
+
+    #Run WDmaghist.py
+    WDmaghist.main()
     
     #Run WDColorMag.py
     os.chdir('../GalexData_run6')
@@ -33,7 +37,7 @@ def main(eclipsegenerate):
 
     #Run WDsigmamag.py
     WDsigmamag.percentile(True)
-    
+
     #Run WDlatexcommands.py
     os.chdir('../')
     assert(os.getcwd() == '/home/dmrowan/WhiteDwarfs')
