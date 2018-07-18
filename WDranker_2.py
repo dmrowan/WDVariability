@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 from __future__ import print_function, division, absolute_import
 import os
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import argparse
 import pandas as pd
 from astropy.stats import LombScargle
 import heapq
@@ -73,6 +73,44 @@ def badflag_bool(x):
             continue
     return False
 
+def catalog_match(source):
+    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
+    bigcatalog = pd.read_csv(catalogpath)
+
+    nhyphens = len(np.where(np.array(list(source)) == '-')[0])
+    if ( (source[0:4] == 'Gaia') or
+            (source[0:2] in ['GJ', 'CL', 'V*', 'PN']) or
+            (source[0:3] in ['Ton', 'CL*', 'Cl*', 'RRS', 'MAS']) or
+            (source[0:5] in ['LAWDS']) or
+            ('GMS97' in source) or
+            ('FOCAP' in source) or
+            ('KAB' in source) or
+            ('NCA' in source)):
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
+    elif source[0:5] == 'ATLAS':
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
+    elif source[0:2] == 'LP':
+        if nhyphens == 2:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
+        elif nhyphens == 3:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1)[::-1].replace('-',' ',1)[::-1])[0]
+        else:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
+    elif source[0:3] == '2QZ':
+        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
+    elif source[0:2] == 'BD':
+        if nhyphens == 2:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source[::-1].replace('-', ' ', 1)[::-1])[0]
+        else:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
+    else:   #SDSS sources go in here
+        if nhyphens == 1:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
+        else:
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0]
+
+    return(bigcatalog_idx)
+
 #Main ranking function
 def main(csvname, fap, prange, w_pgram,
          w_expt, w_WS, w_mag, w_known, 
@@ -99,7 +137,6 @@ def main(csvname, fap, prange, w_pgram,
         if character == 'c':
             endidx=i-5
             break
-
     source = csvpath[0:endidx]
 
     #Grab the band (also checks we have source csv)
@@ -112,8 +149,8 @@ def main(csvname, fap, prange, w_pgram,
     else:
         print("Not source csv, skipping")
         return
-
     assert(band is not None)
+
     print(source, band)
     bandcolors = {'NUV':'red', 'FUV':'blue'}
     alldata = pd.read_csv(csvpath)
@@ -129,7 +166,7 @@ def main(csvname, fap, prange, w_pgram,
         alldata = alldata.drop(index = idx_high_cps)
         alldata = alldata.reset_index(drop=True)
 
-    #Fix rows with weird t_means by averaging t0 and t1
+    #Fix rows with incorrecct t_means by averaging t0 and t1
     idx_tmean_fix = np.where( (alldata['t_mean'] < 1) | 
             (alldata['t_mean'] > alldata['t1']) | 
             (np.isnan(alldata['t_mean'])) )[0]
@@ -246,40 +283,7 @@ def main(csvname, fap, prange, w_pgram,
 
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
-    #Replace hyphens with spaces
-    #Have to deal with replacing hyphens in different designations differently
-    nhyphens = len(np.where(np.array(list(source)) == '-')[0])
-    if ( (source[0:4] == 'Gaia') or
-            (source[0:2] in ['GJ', 'CL', 'V*', 'PN']) or
-            (source[0:3] in ['Ton', 'CL*', 'Cl*', 'RRS', 'MAS']) or
-            (source[0:5] in ['LAWDS']) or
-            ('GMS97' in source) or
-            ('FOCAP' in source) or
-            ('KAB' in source) or
-            ('NCA' in source)):
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
-    elif source[0:5] == 'ATLAS':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-    elif source[0:2] == 'LP':
-        if nhyphens == 2:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
-        elif nhyphens == 3:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1)[::-1].replace('-',' ',1)[::-1])[0]
-        else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-    elif source[0:3] == '2QZ':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
-    elif source[0:2] == 'BD':
-        if nhyphens == 2:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source[::-1].replace('-', ' ', 1)[::-1])[0]
-        else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
-    else:   #SDSS sources go in here
-        if nhyphens == 1:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
-        else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0]
-
+    bigcatalog_idx = catalog_match(source)
     if len(bigcatalog_idx) == 0:
         print(source, "Not in catalog")
         with open("../brokensources.txt", 'a') as f:
@@ -820,21 +824,16 @@ def main(csvname, fap, prange, w_pgram,
 
         plt.errorbar(ASASSN_JD_V, ASASSN_mag_V, yerr=ASASSN_mag_err_V, color='blue', ls='-', label='V band', ecolor='gray')
         plt.errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band', ecolor='gray')
+        #Having some issues here, set default ranges if there is a problem
         try:
             maxmag_g = max(ASASSN_mag_g)
-        except:
-            maxmag_g = 20
-        try:
             minmag_g = min(ASASSN_mag_g)
-        except:
-            minmag_g = 10
-        try:
             minmag_V = min(ASASSN_mag_V)
-        except:
-            minmag_V = 10
-        try:
             maxmag_V = max(ASASSN_mag_V)
         except:
+            maxmag_g = 20
+            minmag_g = 10
+            minmag_V = 10
             maxmag_V = 20
         maxmag = max(maxmag_V, maxmag_g)
         minmag = min(minmag_V, minmag_g)
@@ -848,26 +847,51 @@ def main(csvname, fap, prange, w_pgram,
         plt.legend()
 
         plt.subplot2grid((2,2), (1,1), colspan=1, rowspan=1)
+        
         if len(ASASSN_JD_V) > 5:
-            lsV = LombScargle(ASASSN_JD_V, ASASSN_mag_V, dy=ASASSN_mag_err_V)
+            #Select the largest time group
+            breaksASASSN_V = []
+            for i in range(len(ASASSN_JD_V)):
+                if i != 0:
+                    if (ASASSN_JD_V[i] - ASASSN_JD_V[i-1]) >= 100:
+                        breaksASASSN_V.append(i)
+            
+            Vgroups_JD = []
+            Vgroups_mag = []
+            Vgroups_mag_err = []
+            for i in range(len(breaksASASSN_V)):
+                if i == 0:
+                    Vgroups_JD.append(ASASSN_JD_V[:breaksASASSN_V[i]])
+                    Vgroups_mag.append(ASASSN_mag_V[:breaksASASSN_V[i]])
+                    Vgroups_mag_err.append(ASASSN_mag_err_V[:breaksASASSN_V[i]])
+                elif i == len(breaksASASSN_V) -1:
+                    Vgroups_JD.append(ASASSN_JD_V[breaksASASSN_V[i]:])
+                    Vgroups_mag.append(ASASSN_mag_V[breaksASASSN_V[i]:])
+                    Vgroups_mag_err.append(ASASSN_mag_err_V[breaksASASSN_V[i]:])
+                else:
+                    Vgroups_JD.append(ASASSN_JD_V[breaksASASSN_V[i-1]:breaksASASSN_V[i]])
+                    Vgroups_mag.append(ASASSN_mag_V[breaksASASSN_V[i-1]:breaksASASSN_V[i]])
+                    Vgroups_mag_err.append(ASASSN_mag_err_V[breaksASASSN_V[i-1]:breaksASASSN_V[i]])
+
+            length_V_list = [ len(l) for l in Vgroups_JD ]
+            idx_Vlongest = np.where(np.array(length_V_list) == max(length_V_list))[0][0]
+            ASASSN_pgramV_JD = Vgroups_JD[idx_Vlongest]
+            ASASSN_pgramV_mag = Vgroups_mag[idx_Vlongest]
+            ASASSN_pgramV_err = Vgroups_mag_err[idx_Vlongest]
+
+            #Generate LS periodogram
+            lsV = LombScargle(ASASSN_pgramV_JD, ASASSN_pgramV_mag, dy=ASASSN_pgramV_err)
             freqV, ampV = lsV.autopower(nyquist_factor=1)
             plt.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
             plt.xlim(xmax=(1/30))
-            plt.axhline(y=lsV.false_alarm_level(.1), color='blue', alpha=.5, ls='-')
+            plt.axhline(y=lsV.false_alarm_level(.1), color='blue', alpha=.5, ls='--', label='.1 fal')
         if len(ASASSN_JD_g) > 5:
             lsg = LombScargle(ASASSN_JD_g, ASASSN_mag_g, dy=ASASSN_mag_err_g)
             freqg, ampg = lsg.autopower(nyquist_factor=1)
             plt.plot(freqg, ampg, color='green', label='g mag', zorder=1)
             plt.xlim(xmax=(1/30))
-            plt.axhline(y=lsg.false_alarm_level(.1), color='green', alpha=.5, ls='-')
+            plt.axhline(y=lsg.false_alarm_level(.1), color='green', alpha=.5, ls='--', label='.1 fal')
     
-        #Print frequencies
-        if False:
-            idx_asassn_max_v = np.where(np.array(ampV)==max(ampV))[0]
-            print("Frequency V band: ", freqV[idx_asassn_max_v])
-            idx_asassn_max_g = np.where(np.array(ampg)==max(ampg))[0]
-            print("Frequency g band: ", freqg[idx_asassn_max_g])
-
         plt.xlabel('Frequency [Hz]')
         plt.ylabel('Amplitude')
         plt.title('Periodogram for ASASSN Data')
@@ -875,7 +899,6 @@ def main(csvname, fap, prange, w_pgram,
 
         
     else:
-        print("No ASASSN data")
         figall, axall = plt.subplots(1,1,figsize=(16,12))
         figall.tight_layout(rect=[0, 0.03, 1, 0.95])
         #Plot total light curve
