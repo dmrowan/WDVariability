@@ -11,6 +11,7 @@ from WDviewer import selectidx
 from matplotlib.patheffects import withStroke
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 import matplotlib.font_manager
+from WDranker_2 import catalog_match
 
 #Dom Rowan REU 2018
 
@@ -39,31 +40,7 @@ def main(pick, view, region, mark, markgroup, ppuls):
     source_list = []
     band_list = []
     for source, i in zip(df_rank_reduced['SourceName'], range(len(df_rank_reduced['SourceName']))):
-        #Find source in BigCatalog to get gaia mag and color
-        nhyphens = len(np.where(np.array(list(source)) == '-')[0])
-        if source[0:4] == 'Gaia':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
-        elif source[0:5] == 'ATLAS':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-        elif source[0:2] == 'GJ':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
-        elif source[0:2] == 'CL':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
-        elif source[0:2] == 'LP':
-            if nhyphens == 2:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
-            else:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-        elif source[0:2] == 'V*':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
-        elif source[0:3] == '2QZ':
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
-        else:
-            if nhyphens == 1:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
-            else:
-                bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0]
-
+        bigcatalog_idx = catalog_match(source)
         if len(bigcatalog_idx) == 0:
                 print(source, "Not in catalog")
                 no_gaia_data_counter += 1
@@ -154,8 +131,6 @@ def main(pick, view, region, mark, markgroup, ppuls):
                 if df_plot['source'][i] == mark:
                     ii = i
                     break
-            print(ii)
-            print(df_plot.loc[ii])
             plt.plot([df_plot['bp_rp'][ii]], [df_plot['absolutemag'][ii]], 'o', color='green', ms=12)
         
         plt.show()
@@ -191,7 +166,6 @@ def main(pick, view, region, mark, markgroup, ppuls):
             #Iterate through points, selecting subplot and marking based on type
             for i in range(len(df_plot['source'])):
                 if df_plot['source'][i] == df_IS['MainID'][idx]:
-                    print(df_plot.loc[i])
                     #ax1.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=200, label='_nolegend_')
                     if (df_plot['bp_rp'][i] > -.022 ) and (df_plot['bp_rp'][i] < .16) and (df_plot['absolutemag'][i] < 12.65) and (df_plot['absolutemag'][i] > 11.35):
                         #ax2.scatter(df_plot['bp_rp'][i], df_plot['absolutemag'][i], c=typecolor, s=200, label='_nolegend_')
