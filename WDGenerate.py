@@ -4,6 +4,7 @@ import os
 import argparse
 import WDAssign
 import WDPlot_eclipse
+import WDPlot_pulsator
 import WDColorMag
 import WDsigmamag
 import WDlatexcommands
@@ -14,7 +15,7 @@ desc="""
 WDGenerate: Generate all plots, tables, for paper
 """
 
-def main(eclipsegenerate):
+def main(eclipsegenerate, pulsatorgenerate):
     #Path assertions 
     assert(os.getcwd() == '/home/dmrowan/WhiteDwarfs')
     assert(os.path.isdir('InterestingSources'))
@@ -27,6 +28,9 @@ def main(eclipsegenerate):
 
     #Run WDPlot_eclipse.py
     WDPlot_eclipse.main(eclipsegenerate)
+
+    #Run WDPlot_pulsator.py
+    WDPlot_pulsator.main(pulsatorgenerate)
 
     #Run WDmaghist.py
     WDmaghist.main()
@@ -47,7 +51,16 @@ def main(eclipsegenerate):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument("--generate_eclipse_info", help="Generate eclipse information for WDPlot_eclipse.py", default=False, action='store_true')
+    parser.add_argument(
+            "--generate_eclipse_info", 
+            help="Generate eclipse information for WDPlot_eclipse.py", 
+            default=False, action='store_true')
+    parser.add_argument(
+            "--generate_pulsator_info", 
+            help="Generate pulsator information for WD_plot_pulsator.py",
+            default=False, action='store_true')
     args= parser.parse_args()
 
-    main(eclipsegenerate=args.generate_eclipse_info)
+    main(eclipsegenerate=args.generate_eclipse_info,
+         pulsatorgenerate=args.generate_pulsator_info,
+    )
