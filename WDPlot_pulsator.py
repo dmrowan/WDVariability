@@ -7,14 +7,9 @@ import argparse
 import pandas as pd
 import matplotlib.gridspec as gs
 from gPhoton import gphoton_utils
-from scipy.stats import chisquare
 from WDranker_2 import badflag_bool
 import subprocess
-from matplotlib.patches import Circle
-from matplotlib.collections import PatchCollection
 from matplotlib.patheffects import withStroke
-from matplotlib.ticker import MultipleLocator, FormatStrFormatter
-import matplotlib.font_manager
 
 #Dom Rowan REU 2018
 
@@ -69,6 +64,7 @@ def main(generate):
 
     ###Generate plot/subplot information###
     nfigs = 8
+    nfigs_0 = nfigs
     fig = plt.figure(figsize=(16,20))
     gs1 = gs.GridSpec(nfigs,2) 
     gs1.update(hspace=0, wspace=0.15)
@@ -79,20 +75,25 @@ def main(generate):
     afont = {'fontname':'Keraleeyam'}
 
     plt.subplots_adjust(top=.98, right=.98)
-    myeffect = withStroke(foreground="k", linewidth=.5)
-    txtkwargs = dict(path_effects=[myeffect])
-    myeffectw = withStroke(foreground="black", linewidth=2)
-    txtkwargsw = dict(path_effects=[myeffectw])
-
+    myeffectw = withStroke(foreground="black", linewidth=2) 
+    txtkwargsw = dict(path_effects=[myeffectw]) 
     figfull = False
+    lastfig = False
     fignumber = 1
 
     #fig.tight_layout(rect=[0, 0, 1, 1])
     starttimes = []
     for idx_plot in range(len(pulsatornames)):
+        nleft = len(pulsatornames) - idx_plot
         if figfull:
+            if nleft < 2*nfigs:
+                if nleft % 2 != 0:
+                    nfigs = nleft//2 + 1
+                else:
+                    nfigs = nleft / 2  
+                lastfig = True
             plt.gcf().clear()
-            fig = plt.figure(figsize=(16,20))
+            fig = plt.figure(figsize=(16,nfigs*2.5))
             gs1 = gs.GridSpec(nfigs,2) 
             gs1.update(hspace=0, wspace=0.15)
             fig.text(.02, .5, 'Flux MMI', va='center', 
@@ -167,6 +168,7 @@ def main(generate):
                 mean = (t1 + t0) / 2.0
                 alldata_other['t_mean'][idx] = mean
 
+
             #Make correction for relative scales
             alldata_tmean_other = alldata_other['t_mean']
             alldata_flux_bgsub_other = alldata_other['flux_bgsub']
@@ -185,14 +187,13 @@ def main(generate):
         data = np.split(alldata, breaks)
         df = data[dfbest-1]
 
-        lasttime = list(df['t1'])[-1]
-        firsttime = list(df['t0'])[0]
-        exposure = lasttime - firsttime
-
         ###Dataframe corrections###
         #Reset first time in t_mean to be 0
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
+
+        lasttime = list(df['t1'])[-1]
+        firsttime = list(df['t0'])[0]
 
         #Find indicies of data above 5 sigma of mean (counts per second column), flagged points, and points with
         # less than 10 seconds of exposure time
@@ -264,6 +265,8 @@ def main(generate):
         if idx_plot > (2*nfigs)-1:
             while idx_plot > (2*nfigs)-1:
                 idx_plot = idx_plot - ((2*nfigs))
+            if lastfig:
+                idx_plot = idx_plot - 2
         plot_coords = coords[idx_plot]
         plt.subplot2grid((nfigs, 2), plot_coords, colspan=1, rowspan=1)
         #plt.subplot2grid((len(pulsatornames), len(pulsatornames)), (idx_plot, 0), colspan=len(pulsatornames), rowspan=1)
@@ -302,7 +305,7 @@ def main(generate):
         if len(bluepoints) != 0: 
             #jd_t_mean_blue = [ t - jd_min_time for t in jd_t_mean_blue ] 
             jd_t_mean_blue = [ t - t0 for t in jd_t_mean_blue ] 
-            #ax.errorbar(jd_t_mean_blue, flux_bgsub_blue, yerr=flux_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
+            ax.errorbar(jd_t_mean_blue, flux_bgsub_blue, yerr=flux_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
         if other_band_exists:
             if len(flux_bgsub_other) != 0:
                 #jd_t_mean_other = [ t - jd_min_time for t in jd_t_mean_other ]
@@ -338,13 +341,17 @@ def main(generate):
             ax.spines[axis].set_linewidth(1.5)
 
         #ax.set_xticks([0, .005, .01, .015, .02])
-        if not plot_coords in [(nfigs-1,0), (nfigs-1,1)]:
-            ax.set_xticklabels([])
+        if lastfig:
+            if (not nleft == 2) and (not plot_coords in [(nfigs-1,0), (nfigs-1,1)]):
+                ax.set_xticklabels([])
+            
+        else:
+            if not plot_coords in [(nfigs-1,0), (nfigs-1,1)]:
+                ax.set_xticklabels([])
         #plt.tight_layout(rect=[.03,0,1,1])
 
    
         if plot_coords == coords[-1]: 
-            print("new fig")
             figfull=True
             fig.tight_layout(rect=[.03,0,1,1])
             fig.savefig("LCappendix"+str(fignumber)+".pdf")
@@ -352,8 +359,6 @@ def main(generate):
 
 
     fig.savefig("LCappendix"+str(fignumber)+".pdf")
-    print(idx_plot)
-    print(coords[idx_plot])
 
 
 if __name__ == '__main__':
