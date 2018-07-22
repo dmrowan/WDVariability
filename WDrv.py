@@ -9,10 +9,7 @@ from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation
 from astropy import units as u
 from scipy.signal import correlate
-from matplotlib.collections import PatchCollection
 from matplotlib.patheffects import withStroke
-from matplotlib.ticker import MultipleLocator, FormatStrFormatter
-import matplotlib.font_manager
 
 #Dom Rowan REU 2018
 
@@ -21,7 +18,7 @@ WDrv.py: RV analysis for eclipsing sources from SNIFS
 """
 
 #Main plotting and fitting function
-def main(datfile, save):
+def main(datfile, save, l1, l2):
     #Get sourcename for coordinate query
     sourcename = datfile[:-11]
     #Get other filename
@@ -66,26 +63,37 @@ def main(datfile, save):
             flux2.append(float(lines2[i].split()[1]))
             flux_err2.append(float(lines2[i].split()[2]))
     
-    middlerange = (int(len(wavelength1)/4), int((3*len(wavelength1)/4)))
-    autocorr_result = np.correlate(flux1, flux2, mode='full')
-    autocorr_result = autocorr_result[int(autocorr_result.size/2):]
-
-    outputcorr = correlate(flux1[middlerange[0]:middlerange[1]], 
-                           flux2[middlerange[0]:middlerange[1]]
-                    )
-    outputcorr = outputcorr[int(len(outputcorr)/2):]
-
     fig, (ax1,ax2, ax3) = plt.subplots(3, 1, figsize=(18,18))
+    if l1 is not None and l2 is not None:
+        assert(l1 < l2)
+        if (l1 > min(wavelength1)) and (l2 < max(wavelength1)):
+            idx_1_l1 = np.where( np.array(abs(np.array(wavelength1) - l1)) == np.min(abs(np.array(wavelength1) - l1)) )[0][0]
+            idx_1_l2 = np.where( np.array(abs(np.array(wavelength1) - l2)) == np.min(abs(np.array(wavelength1) - l2)) )[0][0]
+            idx_2_l1 = np.where( np.array(abs(np.array(wavelength2) - l1)) == np.min(abs(np.array(wavelength2) - l1)) )[0][0]
+            idx_2_l2 = np.where( np.array(abs(np.array(wavelength2) - l2)) == np.min(abs(np.array(wavelength2) - l2)) )[0][0]
+
+            outputcorr = np.correlate(flux1[idx_1_l1:idx_1_l2], 
+                                      flux2[idx_2_l1:idx_2_l2], 
+                                      'full'
+                                )
+            ax1.axvline(x=wavelength1[idx_1_l1], ls='--')
+            ax1.axvline(x=wavelength1[idx_1_l2], ls='--')
+            ax2.axvline(x=wavelength2[idx_2_l1], ls='--')
+            ax2.axvline(x=wavelength2[idx_2_l2], ls='--')
+
+        else:
+            print("Provide valid l1 and l2 bounds")
+            outputcorr = np.correlate(flux1, flux2, 'full')
+    else:
+        outputcorr = np.correlate(flux1, flux2, 'full')
+
     ax1.errorbar(wavelength1, flux1, yerr=flux_err1, marker='.',
                  markersize=12, ls='-', ecolor='gray'
             )
     ax2.errorbar(wavelength2, flux2, yerr=flux_err2, marker='.', 
                  markersize=12, ls='-', ecolor='gray'
             )
-    ax1.axvline(x=wavelength1[middlerange[0]], ls='--')
-    ax1.axvline(x=wavelength1[middlerange[1]], ls='--')
-    ax2.axvline(x=wavelength1[middlerange[0]], ls='--')
-    ax2.axvline(x=wavelength1[middlerange[1]], ls='--')
+
     
     ax3.plot(outputcorr)
     ax1.set_yscale('log')
@@ -120,8 +128,6 @@ def main(datfile, save):
     hc = np.mean([hc1.value, hc2.value])
 
     afont = {'fontname':'Keraleeyam'}
-    myeffect = withStroke(foreground="k", linewidth=.5)
-    txtkwargs = dict(path_effects=[myeffect])
     myeffectw = withStroke(foreground="black", linewidth=2)
     txtkwargsw = dict(path_effects=[myeffectw])
 
@@ -129,7 +135,7 @@ def main(datfile, save):
 
     ax3.annotate(hc_annotation, xy=(.75, .95), xycoords='axes fraction', 
                  color='xkcd:violet', fontsize=30, 
-                 ha='center', ra='center', **afont, **txtkwargsw
+                 ha='center', va='center', **afont, **txtkwargsw
             )
 
     if save:
@@ -155,6 +161,8 @@ if __name__ == '__main__':
                         type=str, required=True)
     parser.add_argument("--save", help="Save with filename", 
                         default=False, action='store_true')
+    parser.add_argument("--l1", help="lower bound angstrom range", default=None, type=float)
+    parser.add_argument("--l2", help="upper bound angstrom range", default=None, type=float)
     args= parser.parse_args()
 
-    main(datfile=args.dat, save=args.save)
+    main(datfile=args.dat, save=args.save, l1=args.l1, l2=args.l2)
