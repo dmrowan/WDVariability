@@ -6,6 +6,7 @@ import argparse
 import pandas as pd
 import numpy as np
 from WDranker_2 import catalog_match
+from radec_conversion import raconvert, decconvert
 #Dom Rowan REU 2018
 
 desc="""
@@ -13,53 +14,88 @@ WDmaghist: Generate histogram of interseting sources
 """
 
 def readBognar():
-    with open('bognar.txt') as f:
-        t=f.readlines()
+    if os.path.isfile("bognarxmatch.csv"):
+        df = pd.read_csv("bognarxmatch.csv")
+        g_mag = list(df['phot_g_mean_mag'])
+        return g_mag
+    else:
+        print("generating bognar csv for xmatch")
+        with open('bognar.txt') as f:
+            t=f.readlines()
 
-    maglist = []
-    nextcol = []
-    for i in range(len(t)):
-        ll = len(t[i].split())
-        if (ll > 15) and (ll < 25):
-            l_idx = 10
-            while True:
-                cval = t[i].split()[l_idx]
-                try:
-                    cval = float(cval)
-                except:
-                    l_idx += 1
-                    if l_idx >= 16:
+        ralist = []
+        declist = []
+        for i in range(len(t)):
+            ll = len(t[i].split())
+            if (ll > 15) and (ll < 25):
+                l_idx = 2
+                while True:
+                    ra_h = t[i].split()[l_idx]
+                    try:
+                        ra_h = int(ra_h)
+                    except:
+                        l_idx += 1
+                        if l_idx >= 10:
+                            break
+                        else:
+                            continue
+                    if (ra_h >= 0) and (ra_h < 24):
+                        splitline = t[i].split()
+                        ra_m = int(splitline[l_idx + 1])
+                        ra_s = int(splitline[l_idx + 2])
+                        ralist.append( (ra_h, ra_m, ra_s) )
+                        
+                        dec_d = splitline[l_idx + 3]
+                        if dec_d == '-00':
+                            negative_dec_0d = True
+                        else:
+                            negative_dec_0d = False
+                        dec_d = int(dec_d)
+                        
+                        dec_m = splitline[l_idx + 4]
+                        if negative_dec_0d:
+                            if dec_m == '00':
+                                negative_dec_0d_0m = True
+                            else:
+                                dec_m = int(dec_m) * -1
+                                negative_dec_0d_0m = False
+                        else:
+                            dec_m = int(dec_m)
+
+                        dec_s = splitline[l_idx + 5]
+                        if negative_dec_0d_0m:
+                            dec_s = int(dec_s) * -1
+                        else:
+                            dec_s = int(dec_s)
+
+                        declist.append( (dec_d, dec_m, dec_s) )
                         break
                     else:
-                        continue
-                if (cval > 11) and (cval < 22):
-                    maglist.append(cval)
-                    nextval = t[i].split()[l_idx + 1]
-                    if nextval[0] != '(':
-                        nextval = '(V)'
-                    nextcol.append(nextval)
-                    break
-                else:
-                    l_idx += 1
+                        l_idx += 1
 
-                if l_idx >= 16:
-                    break
+                    if l_idx >= 10:
+                        break
 
-    maglist.append(17.2)
-    nextcol.append('(V)')
-    maglist.append(18.5)
-    nextcol.append('(g)')
-    maglist.append(15.7)
-    nextcol.append('(V)')
-    maglist.append(14.3)
-    nextcol.append('(V)')
+        ralist.append( (13, 23, 50) )
+        declist.append( (1,3,4) )
+        ralist.append( (14,3,57) )
+        declist.append( (-15,1,11) )
+        ralist.append( (14, 24, 39) )
+        declist.append( (9,17,14) )
+        ralist.append( (19, 20, 25) )
+        declist.append( (50, 17, 22) )
 
-    output_mag = []
-    for i in range(len(maglist)):
-        if nextcol[i] == '(g)':
-            output_mag.append(maglist[i])
-
-    return(output_mag)
+        ralist_deg = []
+        declist_deg = []
+        for tup in ralist:
+            ralist_deg.append(raconvert(tup[0], tup[1], tup[2]))
+        for tup in declist:
+            declist_deg.append(decconvert(tup[0], tup[1], tup[2]))
+        
+        df_output = pd.DataFrame({'ra': ralist_deg, 'dec': declist_deg})
+        df_output.to_csv("bognar_coords.csv", index=False)
+        output_mag = []
+        return(output_mag)
 
 def main():
     assert(os.getcwd() == '/home/dmrowan/WhiteDwarfs/InterestingSources')
@@ -88,7 +124,7 @@ def main():
 
 
     fig, ax = plt.subplots(1,1, figsize=(6, 8))
-    fig.tight_layout(rect=[.03, .03, .99, .99])
+    fig.tight_layout(rect=[.07, .03, .99, .99])
     bins = np.linspace(13, 21, 20)
     ax.hist(mag_np, color='xkcd:red', alpha=.5, 
              label="New Pulsator", zorder=2, bins=bins)
