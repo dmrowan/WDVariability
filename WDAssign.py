@@ -54,7 +54,7 @@ def main(ppuls):
     dec_list = []
     stypes_list = []
     for name in interestingsources:
-        bigcatalog_idx = catalog_match(name)
+        bigcatalog_idx = catalog_match(name, bigcatalog)
         if len(bigcatalog_idx) == 0:
             print(name, "Not in catalog")
             g_list.append("")
@@ -66,6 +66,18 @@ def main(ppuls):
             ra_list.append(bigcatalog['ra'][bigcatalog_idx])
             dec_list.append(bigcatalog['dec'][bigcatalog_idx])
             stypes_list.append(bigcatalog['SimbadTypes'][bigcatalog_idx])
+
+
+    df_alldata = pd.read_csv("/home/dmrowan/WhiteDwarfs/"
+                             +"GalexData_run6/Output/AllData.csv")
+    ws_list = []
+    for name in interestingsources:
+        alldata_idx = np.where(df_alldata['SourceName'] == name)[0]
+        assert(len(alldata_idx) != 0)
+        ws_values = [ df_alldata['WS metric'][ii] for ii in alldata_idx ]
+        for ii in alldata_idx:
+            ws_values.append(df_alldata['WS metric'][ii])
+        ws_list.append(round(max(ws_values)))
 
     ra_list = [ round(val,5) for val in ra_list ]
     dec_list = [ round(val,5) for val in dec_list ]
@@ -141,7 +153,8 @@ def main(ppuls):
             "sigma_m_NUV":sigma_list_NUV,
             "metric_FUV":metric_FUV, 
             "m_ab_FUV":m_ab_list_FUV, 
-            "sigma_m_FUV":sigma_list_FUV
+            "sigma_m_FUV":sigma_list_FUV,
+            "Welch Stetson":ws_list
         })
 
     df_output = df_output.sort_values(by=["ra"])
@@ -153,18 +166,93 @@ def main(ppuls):
 
 def latextable():
     assert(os.path.isfile("IS.csv"))
+    #assert(os.path.isfile("references.csv"))
     df = pd.read_csv("IS.csv")
+    df_ref = pd.read_csv("references.csv")
     df_output = pd.DataFrame({
             "MainID":df["MainID"],
             "ID Num":df["labelnum"],
             "RA":df["ra"],
             "DEC":df["dec"],
             "Gaia G":df["g"],
+            r'$c_{\sigma_{mag, NUV}}$': df['metric_NUV'],
+            r'$c_{\sigma_{mag, FUV}}$': df['metric_FUV'],
+            #"Welch Stetson I":df["Welch Stetson"],
             "Type":df["type"],
         })
+
+    """
+    references = []
+    for i in range(len(df_output['MainID'])):
+        idx_ref = np.where(df_ref['MainID'] == df_output['MainID'][i])[0]
+        if len(idx_ref) == 0:
+            references.append("")
+        else:
+            idx_ref = idx_ref[0]
+            authoryear = df_ref['Reference'][idx_ref]
+            latexcitation = "\cite{"+authoryear+"}"
+            references.append(latexcitation)
+    """
+
+    for i in range(len(df_output['Type'])):
+        if df_output['Type'][i] == 'Pulsator':
+            df_output.loc[i, 'Type'] = "New Pulsator"
     
     with open("IS_latextable.tex", 'w') as f:
-        f.write(df_output.to_latex(index=False))
+        f.write(df_output.to_latex(index=False, escape=False))
+        f.close()
+
+    with open("IS_latextable.tex", 'r') as f:
+        lines = f.readlines()
+        f.close()
+    
+    lines.insert(3, "& & (Deg) & (Deg) & (mag) & & (mag) & (mag)  \\\ \n")
+
+    with open("IS_latextable.tex", 'w') as f:
+        contents = "".join(lines)
+        f.write(contents)
+        f.close()
+
+def latex_known():
+    df_ref = pd.read_csv("references.csv")
+    df_output = pd.DataFrame({
+        "MainID":df_ref["MainID"],
+        "RA":df_ref["RA"],
+        "DEC":df_ref["DEC"],
+    })
+    references = []
+    for citation in df_ref['Reference']:
+        if str(citation) == 'nan':
+            references.append("")
+        else:
+            latexcitation = "\cite{"+citation+"}"
+            references.append(latexcitation)
+
+    df_output['Reference'] = references
+    df_output['Pulsation Periods'] = df_ref['Pulsation Periods']
+
+    idx_eclipse = []
+    for i in range(len(df_output['MainID'])):
+        if str(df_output['RA'][i]) == 'nan':
+            idx_eclipse.append(i)
+    df_output = df_output.drop(idx_eclipse)
+    df_output = df_output.sort_values(by='RA')
+    df_output = df_output.reset_index(drop=True)
+
+    with open("IS_latextable_kp.tex", 'w') as f:
+        f.write(df_output.to_latex(index=False, escape=False))
+        f.close()
+
+    with open("IS_latextable_kp.tex", 'r') as f:
+        lines = f.readlines()
+        f.close()
+
+    lines.insert(3, "& (deg) & (deg) &  &  (s) \\\ \n")
+
+    with open("IS_latextable_kp.tex", 'w') as f:
+        contents = "".join(lines)
+        f.write(contents)
+        f.close()
 
 if __name__ == '__main__':
 
@@ -175,9 +263,14 @@ if __name__ == '__main__':
     parser.add_argument("--latex", 
             help="Generate latex table", 
             default=False, action='store_true')
+    parser.add_argument("--kp", 
+            help="Generate latex table for known pulsators",
+            default=False, action='store_true')
     args= parser.parse_args()
 
     if args.latex:
         latextable()
+    elif args.kp:
+        latex_known()
     else:
         main(ppuls=args.ppuls)

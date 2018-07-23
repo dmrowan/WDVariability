@@ -7,14 +7,9 @@ import argparse
 import pandas as pd
 import matplotlib.gridspec as gs
 from gPhoton import gphoton_utils
-from scipy.stats import chisquare
 from WDranker_2 import badflag_bool
 import subprocess
-from matplotlib.patches import Circle
-from matplotlib.collections import PatchCollection
 from matplotlib.patheffects import withStroke
-from matplotlib.ticker import MultipleLocator, FormatStrFormatter
-import matplotlib.font_manager
 
 #Dom Rowan REU 2018
 
@@ -62,15 +57,13 @@ def main(generate):
 
     ###Generate plot/subplot information###
     fig = plt.figure(figsize=(12,8))
-    gs1 = gs.GridSpec(5,2) 
+    gs1 = gs.GridSpec(4,2) 
     gs1.update(hspace=0, wspace=0.15)
     fig.text(.02, .5, 'Relative CPS', va='center', rotation='vertical', fontsize=30)
     fig.text(.5, .025, 'Minutes from Start', va='center', fontsize=30, ha='center')
     afont = {'fontname':'Keraleeyam'}
 
     plt.subplots_adjust(top=.98, right=.98)
-    myeffect = withStroke(foreground="k", linewidth=.5)
-    txtkwargs = dict(path_effects=[myeffect])
     myeffectw = withStroke(foreground="black", linewidth=2)
     txtkwargsw = dict(path_effects=[myeffectw])
 
@@ -140,7 +133,7 @@ def main(generate):
             alldata_tmean_other = alldata_other['t_mean']
             alldata_cps_bgsub_other = alldata_other['cps_bgsub']
             alldata_mediancps_other = np.median(alldata_cps_bgsub_other)
-            alldata_cps_bgsub_other = ( alldata_cps_bgsub_other / alldata_mediancps_other ) - 1.0
+            alldata_cps_bgsub_other = ( alldata_cps_bgsub_other / alldata_mediancps_other )
             alldata_cps_bgsub_err_other = alldata_other['cps_bgsub_err'] / alldata_mediancps_other
 
 
@@ -156,7 +149,6 @@ def main(generate):
 
         lasttime = list(df['t1'])[-1]
         firsttime = list(df['t0'])[0]
-        exposure = lasttime - firsttime
 
         ###Dataframe corrections###
         #Reset first time in t_mean to be 0
@@ -188,8 +180,6 @@ def main(generate):
 
         #If less than 10 points, skip
         if df_reduced.shape[0] < 10:
-            df_number +=1
-            skipnum += 1
             continue
 
         #If first point is not within 3 sigma, remove
@@ -205,7 +195,7 @@ def main(generate):
         #Standard deviation divided by the median of the error as an interesting thing. Should be significantly above 1. Might be a good way to quickly see whats varying 
         cps_bgsub = df_reduced['cps_bgsub']
         cps_bgsub_median = np.median(cps_bgsub)
-        cps_bgsub = ( cps_bgsub / cps_bgsub_median ) - 1.0
+        cps_bgsub = ( cps_bgsub / cps_bgsub_median )
         cps_bgsub_err = df_reduced['cps_bgsub_err'] / cps_bgsub_median
         t_mean = df_reduced['t_mean']
 
@@ -220,20 +210,22 @@ def main(generate):
         #Make the correction for relative scales for redpoints and bluepoints
         if len(redpoints) != 0:
             cps_bgsub_red = df['cps_bgsub'][redpoints]
-            cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median) - 1.0
+            cps_bgsub_red = (cps_bgsub_red / cps_bgsub_median)
             cps_bgsub_err_red = df['cps_bgsub_err'][redpoints] / cps_bgsub_median
             t_mean_red = df['t_mean'][redpoints]
         if len(bluepoints) != 0:
             cps_bgsub_blue = df['cps_bgsub'][bluepoints]
-            cps_bgsub_blue = ((cps_bgsub_blue / cps_bgsub_median) - 1.0) * 1000
+            cps_bgsub_blue = (cps_bgsub_blue / cps_bgsub_median)
             cps_bgsub_err_blue = df['cps_bgsub_err'][bluepoints] / cps_bgsub_median
             t_mean_blue = df['t_mean'][bluepoints]
 
         #Subplot for LC
-        coords = [(0,0),(1,0),(2,0),(3,0),(4,0), (1,1), (2,1), (3,1), (4,1)]
+        coords = []
+        for y in range(0, 4):
+            coords.append( (y,0) )
+            coords.append( (y,1) )
         plot_coords = coords[idx_plot]
-        plt.subplot2grid((5, 2), plot_coords, colspan=1, rowspan=1)
-        #plt.subplot2grid((len(eclipsenames), len(eclipsenames)), (idx_plot, 0), colspan=len(eclipsenames), rowspan=1)
+        plt.subplot2grid((4, 2), plot_coords, colspan=1, rowspan=1)
         #Convert to JD here as well
         jd_t_mean = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean ]
 
@@ -305,29 +297,42 @@ def main(generate):
             ax.spines[axis].set_linewidth(1.5)
 
         #ax.set_xticks([0, .005, .01, .015, .02])
-        if not plot_coords in [(4,0), (4,1)]:
+        if not plot_coords in [(3,0), (3,1)]:
             ax.set_xticklabels([])
         #plt.tight_layout(rect=[.03,0,1,1])
 
    
-    plt.subplot2grid((5, 2), (0,1), colspan=1, rowspan=1)
-    plt.xlim(xmin=10, xmax=12)
-    plt.ylim(ymin=10, ymax=12)
-    plt.errorbar(0,0, yerr=10, color='red', label='NUV', marker='.', ls='')
-    plt.errorbar(0,0, yerr=10, color='blue', label='FUV', marker='.', ls='', alpha=.25)
-    plt.errorbar(0,0,yerr=10, label='Flagged', color='#808080', marker='.', ls='', alpha=.5)
-    plt.legend(fontsize=18, loc=(0, .05), framealpha=.5)
-    plt.axis('off')
-    
-    #plt.show()
-    #fig.tight_layout(rect=[.03,0,1,1])
     fig.savefig("EclipseTower.pdf")
 
 
+    
     #Generate output table
-    df_output = pd.DataFrame({"Name":eclipsenames, "IDnum":[ int(x) for x in labelnum_list ], "Obs Start (JD)": starttimes})
-    print(df_output)
-    df_output.to_csv("EclipseTableOutput.csv", index=False)
+    df_output = pd.DataFrame({"Name":eclipsenames, 
+                              "IDnum":[ int(x) for x in labelnum_list ], 
+                              "Obs Start (JD)": starttimes
+                        })
+
+    try:
+        df_timing = pd.read_csv("eclipse_timing.csv")
+        timingexists = True
+    except:
+        print("No timing information")
+        timingexists = False
+
+    if timingexists:
+        transit_duration = []
+        for name in df_timing['MainID']:
+            idx_timing = np.where(df_timing['MainID'] == name)[0][0]
+            td = df_timing['Duration'][idx_timing]
+            if td == 0:
+                transit_duration.append("")
+            else:
+                transit_duration.append(round(td))
+        df_output["Transit Duration (minutes)"] = transit_duration
+
+    with open("EclipseTableOutput.tex", 'w') as f:
+        f.write(df_output.to_latex(index=False, escape=False))
+
 
 if __name__ == '__main__':
     

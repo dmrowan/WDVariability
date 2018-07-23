@@ -123,26 +123,34 @@ def main():
     mag_bognar = readBognar()
 
 
-    fig, ax = plt.subplots(1,1, figsize=(6, 8))
+    fig, ax = plt.subplots(1,1, figsize=(7, 8))
     fig.tight_layout(rect=[.07, .03, .99, .99])
     bins = np.linspace(13, 21, 20)
-    ax.hist(mag_np, color='xkcd:red', alpha=.5, 
-             label="New Pulsator", zorder=2, bins=bins)
+    ax.hist(mag_np, color='xkcd:red', alpha=.75, 
+             label="New Pulsator", zorder=2, bins=bins,
+             linewidth=1.2, edgecolor='black')
     #ax.hist(mag_kp, color='xkcd:violet', alpha=.5, 
     #         label="Known Pulastor", zorder=2, bins=bins)
     #ax.hist(mag_e, color='xkcd:azure', alpha=.5, 
     #         label="Eclipse", zorder=3, bins=bins)
-    ax.hist(mag_bognar, color='xkcd:violet', alpha=.5, 
-            label='Known DA Pulsators', zorder=1, bins=bins)
-    ax.legend(loc=2, fontsize=15)
+    ax.hist(mag_bognar, color='xkcd:violet', alpha=.75, 
+            label='Known DA Pulsators', zorder=1, bins=bins, 
+            linewidth=1.2, edgecolor='black')
+    ax.set_yticks([x for x in np.arange(2, 20, 2)])
     ax.minorticks_on()
     ax.yaxis.set_ticks_position('both')
     ax.xaxis.set_ticks_position('both')
     ax.tick_params(direction='in', which='both', labelsize=15)
     ax.tick_params('both', length=8, width=1.8, which='major')
     ax.tick_params('both', length=4, width=1, which='minor')
-    ax.set_xlabel('Gaia apparent G magnitude (mag)', fontsize=20)
-    ax.set_ylabel('Number in bin', fontsize=20)
+    ax.set_xlabel('Gaia '+r'$G$'+' (mag)', fontsize=20)
+    ax.set_ylabel('N WDs', fontsize=20)
+    ax.axvline(x=np.median(mag_np), color='xkcd:crimson', 
+               ls='--', lw=3, label="New pulastor median")
+    ax.axvline(x=np.median(mag_bognar), color='xkcd:dark purple', 
+               ls='--', lw=3, label="Known pulsator median")
+    ax.legend(loc=2, fontsize=15)
+
 
     for axis in ['top', 'bottom', 'left', 'right']:
         ax.spines[axis].set_linewidth(1.5)

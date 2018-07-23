@@ -10,12 +10,18 @@ from astropy.coordinates import SkyCoord, EarthLocation
 from astropy import units as u
 from scipy.signal import correlate
 from matplotlib.patheffects import withStroke
+from scipy.optimize import curve_fit
 
 #Dom Rowan REU 2018
 
 desc="""
 WDrv.py: RV analysis for eclipsing sources from SNIFS
 """
+
+def expdecay(x, A, gamma, C):
+    output = A*np.exp(x*gamma) + C
+    print(A, gamma, C)
+    return output
 
 #Main plotting and fitting function
 def main(datfile, save, l1, l2):
@@ -76,16 +82,31 @@ def main(datfile, save, l1, l2):
                                       flux2[idx_2_l1:idx_2_l2], 
                                       'full'
                                 )
+            outputcorr_valid = np.correlate(flux1[idx_1_l1:idx_1_l2], 
+                                      flux2[idx_2_l1:idx_2_l2], 
+                                      'valid'
+                                )
             ax1.axvline(x=wavelength1[idx_1_l1], ls='--')
             ax1.axvline(x=wavelength1[idx_1_l2], ls='--')
             ax2.axvline(x=wavelength2[idx_2_l1], ls='--')
             ax2.axvline(x=wavelength2[idx_2_l2], ls='--')
 
+            popt, pcov = curve_fit(expdecay, flux1[idx_1_l1:idx_1_l2], wavelength1[idx_1_l1:idx_1_l2], p0=[4e-17, -.0002, -(1e-18)], bounds=([1e-20, -.001, -(1e-16)], [1e-15, -.00001, 1e-16]))
+            xvals = np.arange(wavelength1[idx_1_l1-200], wavelength1[idx_1_l2+200], 4)
+            fitvals = expdecay(xvals, popt[0], popt[1], popt[2]) - 5e-17
+            #fitvals = expdecay(xvals, 4e-17, -.0002, 0)
+            print(min(fitvals), max(fitvals))
+            ax1.plot(xvals, fitvals, label='fit', c='green', lw=4, zorder=2)
+
         else:
             print("Provide valid l1 and l2 bounds")
             outputcorr = np.correlate(flux1, flux2, 'full')
+            outputcorr_valid = np.correlate(flux1, flux2, 'valid')
     else:
         outputcorr = np.correlate(flux1, flux2, 'full')
+        outputcorr_valid = np.correlate(flux1, flux2, 'valid')
+
+    print(outputcorr_valid)
 
     ax1.errorbar(wavelength1, flux1, yerr=flux_err1, marker='.',
                  markersize=12, ls='-', ecolor='gray'
@@ -104,6 +125,7 @@ def main(datfile, save, l1, l2):
     ax2.set_xlabel('Wavelength (A)', fontsize=20)
 
     for ax in [ax1, ax2]:
+        ax.legend(loc=3)
         ax.minorticks_on()
         ax.tick_params(direction='in', which='both', labelsize=15)
         ax.yaxis.set_ticks_position('both')
