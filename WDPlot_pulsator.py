@@ -86,7 +86,7 @@ def main(generate):
     fig = plt.figure(figsize=(16,nfigs*2.5))
     gs1 = gs.GridSpec(nfigs,2) 
     gs1.update(hspace=0, wspace=0.2)
-    fig.text(.02, .5, 'Flux MMI', va='center', 
+    fig.text(.02, .5, 'Flux (MMI)', va='center', 
              rotation='vertical', fontsize=30)
     fig.text(.5, .05, 'Minutes from Start', 
              va='center', fontsize=30, ha='center')
