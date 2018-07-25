@@ -46,7 +46,7 @@ def piecewise_linear_V(x, x0, x1, x2, m1, m2, y0):
 
 class WDEB:
     
-    def __init__(self, NUVcsv):
+    def __init__(self, NUVcsv, select=False):
         #Read in CSV and get source name
         #Generate DataFrame for both bands
         self.NUVcsv = NUVcsv
@@ -63,18 +63,42 @@ class WDEB:
             self.FUVall = None
 
         #Best group information
-        group_path = ("/home/dmrowan/WhiteDwarfs/" +
-                      "InterestingSources/eclipse_group.csv")
-        assert(os.path.isfile(group_path))
-        df_groups = pd.read_csv(group_path)
+        if not select:
+            group_path = ("/home/dmrowan/WhiteDwarfs/" +
+                          "InterestingSources/eclipse_group.csv")
+            assert(os.path.isfile(group_path))
+            df_groups = pd.read_csv(group_path)
 
-        df_groups = df_groups.where(pd.notnull(df_groups), None)
-        idx_group = np.where(df_groups['MainID']==self.source)[0][0]
-        self.best_df = df_groups['df_number'][idx_group]
-        self.g1 = df_groups['g1'][idx_group]
-        self.g2 = df_groups['g2'][idx_group]
-        self.g3 = df_groups['g3'][idx_group]
-        self.g4 = df_groups['g4'][idx_group]
+            df_groups = df_groups.where(pd.notnull(df_groups), None)
+            idx_group = np.where(df_groups['MainID']==self.source)[0][0]
+            self.best_df = df_groups['df_number'][idx_group]
+            self.g1 = df_groups['g1'][idx_group]
+            self.g2 = df_groups['g2'][idx_group]
+            self.g3 = df_groups['g3'][idx_group]
+            self.g4 = df_groups['g4'][idx_group]
+        else:
+            i1 = input("Select best_df number --- ")
+            self.best_df = int(i1)
+            ig1 = input("Give param guess for g1 --- ")
+            if ig1 == "":
+                self.g1 = None
+            else:
+                self.g1 = float(ig1)
+            ig2 = input("Give param guess for g2 --- ")
+            if ig2 == "":
+                self.g2 = None
+            else:
+                self.g1 = float(ig2)
+            ig3 = input("Give param guess for g3 --- ")
+            if ig3 == "":
+                self.g3 = None
+            else:
+                self.g3 = float(ig3)
+            ig4 = input("Give param guess for g4 --- ")
+            if ig4 == "":
+                self.g4 = None
+            else:
+                self.g4 = float(ig4)
 
         
         #Catalog match
@@ -550,7 +574,8 @@ class WDEB:
             
             master_dic['reg_slope'].append(paramdic['reg_slope'])
             master_dic['ie_slope'].append(paramdic['ie_slope'])
-            master_dic['bot_slope'].append(paramdic['bot_slope'])
+            if paramdic['bot_slope'] is not None:
+                master_dic['bot_slope'].append(paramdic['bot_slope'])
             master_dic['chi2reduced'].append(paramdic['chi2reduced'])
 
 
@@ -679,6 +704,7 @@ def TowerPlot():
         coords.append( (y,1) )
     idx_plot = 0
     for eb in eb_list:
+        print(eb.source)
         if idx_plot == len(eb_list):
             break
         plot_coords = coords[idx_plot]
@@ -720,6 +746,7 @@ def TowerPlot():
 
         #Plotting parameters
         axT.set_ylim(ymax=max(eb.cps_bgsub)*1.2)
+        axT.set_xlim(xmin=-1, xmax=30.5)
         axT.minorticks_on()
         axT.tick_params(direction='in', which='both', labelsize=12)
         axT.yaxis.set_ticks_position('both')
@@ -731,7 +758,7 @@ def TowerPlot():
 
         axT.annotate(str(eb.labelnum), xy=(.95, .85), 
                     xycoords='axes fraction', color='xkcd:azure', 
-                    fontsize=20, ha='center', va='center', zorder=4
+                    fontsize=20, ha='center', va='center', zorder=4,
                     **afont, **txtkwargsw)
         idx_plot += 1
 
@@ -764,85 +791,249 @@ def genTable():
             'Egress_lower':[],
             'Egress_upper':[],
             }
-             
+    
     for eb in eb_list:
         bd = eb.parameters
+        bestfitdic = eb.bestfit
         output_dic['MainID'].append(eb.source)
         output_dic['ID'].append(eb.labelnum)
         output_dic['Spectral Type'].append(eb.sdsstype)
         output_dic['Obs Start'].append(eb.obsstart)
-        output_dic['Duration_m'].append(bd['duration'][0])
-        output_dic['Duration_lower'].append(bd['duration'][1])
-        output_dic['Duration_upper'].append(bd['duration'][2])
-        output_dic['Ingress_m'].append(bd['ingress'][0])
-        output_dic['Ingress_lower'].append(bd['ingress'][1])
-        output_dic['Ingress_upper'].append(bd['ingress'][2])
-        output_dic['Egress_m'].append(bd['egress'][0])
-        output_dic['Egress_lower'].append(bd['egress'][1])
-        output_dic['Egress_upper'].append(bd['egress'][2])
-        
-        bestfitdic = eb.bestfit
-        output_dic['Duration_bf'] = bestfitdic['duration']
-        output_dic['Ingress_bf'] = bestfitdic['ingress']
-        output_dic['Egress_bg'] = bestfitdic['egress']
+        problem=False
+        issue = []
 
-        if ((bestfitdic['duration'] > bd['duration'][2]) 
-            or (bestfitdic['duration'] < bd['duration'][1])
-            or (bestfitdic['ingress'] > bd['ingress'][2])
-            or (bestfitdic['ingress'] < bd['ingress'][1])
-            or (bestfitdic['egress'] > bd['egress'][2])
-            or (bestfitdic['egress'] < bd['egress'][1])):
+        if len(bd['duration']) != 0:
+            output_dic['Duration_m'].append(bd['duration'][0])
+            output_dic['Duration_lower'].append(bd['duration'][1])
+            output_dic['Duration_upper'].append(bd['duration'][2])
+            output_dic['Duration_bf'].append(bestfitdic['duration'])
+            #print('d', bd['duration'][1], bd['duration'][2])
 
+            if ((bestfitdic['duration'] > 
+                 bd['duration'][0] + bd['duration'][2]) 
+                    or (bestfitdic['duration'] < bd['duration'][1])):
+                problem=True
+                issue.append('duration')
+
+            """
+            output_dic['Duration'].append(r'${0}^{1}_{2}$'.format(
+                    str(round(bestfitdic['duration'])),
+                    str(round(bd['duration'][1])),
+                    str(round(bd['duration'][2]))))
+            """
+            a = bestfitdic['duration']
+            b = bd['duration'][2] - bd['duration'][0]
+            c = bd['duration'][0] - bd['duration'][1]
+            a = str(round(a, 1))
+            b = str(round(b, 1))
+            c = str(round(c,2))
+            output_dic['Duration'].append(r'$'+a+r'^{+ '+b+ r'}_{-'+c+'}$')
+        else:
+            output_dic['Duration_m'].append("")
+            output_dic['Duration_lower'].append("")
+            output_dic['Duration_upper'].append("")
+            output_dic['Duration_bf'].append("")
+            output_dic['Duration'].append("")
+
+
+        if len(bd['ingress']) != 0:
+            output_dic['Ingress_m'].append(bd['ingress'][0])
+            output_dic['Ingress_lower'].append(bd['ingress'][1])
+            output_dic['Ingress_upper'].append(bd['ingress'][2])
+            #print('i',bd['ingress'][1], bd['ingress'][2])
+            output_dic['Ingress_bf'].append(bestfitdic['ingress'])
+            if ((bestfitdic['ingress'] > 
+                 bd['ingress'][0] + bd['ingress'][2])
+                    or (bestfitdic['ingress'] < bd['ingress'][1])):
+                problem=True
+                issue.append('ingress')
+
+            """
+            output_dic['Ingress'].append(r'${0}^{1}_{2}$'.format(
+                    str(round(bestfitdic['ingress'],1)),
+                    str(round(bd['ingress'][1])),
+                    str(round(bd['ingress'][2]))))
+            """
+            a = bestfitdic['ingress']
+            b = bd['ingress'][2] - bd['ingress'][0]
+            c = bd['ingress'][0] - bd['ingress'][1]
+            a = str(round(a, 1))
+            b = str(round(b, 1))
+            c = str(round(c,2))
+            output_dic['Ingress'].append(r'$'+a+r'^{+'+b+r'}_{-'+c+'}$')
+        else:
+            output_dic['Ingress_m'].append("")
+            output_dic['Ingress_lower'].append("")
+            output_dic['Ingress_upper'].append("")
+            output_dic['Ingress_bf'].append("")
+            output_dic['Ingress'].append("")
+
+        if len(bd['egress']) != 0:
+            output_dic['Egress_m'].append(bd['egress'][0])
+            output_dic['Egress_lower'].append(bd['egress'][1])
+            output_dic['Egress_upper'].append(bd['egress'][2])
+            output_dic['Egress_bf'].append(bestfitdic['egress'])
+            #print('e', bd['egress'][1], bd['egress'][2])
+            if ((bestfitdic['egress'] > 
+                 bd['egress'][0] + bd['egress'][2])
+                    or (bestfitdic['egress'] < bd['egress'][1])):
+                problem=True
+                issue.append('egress')
+
+            """
+            output_dic['Egress'].append(r'${0}^{1}_{2}$'.format(
+                    str(round(bestfitdic['egress'])),
+                    str(round(bd['egress'][1])),
+                    str(round(bd['egress'][2]))))
+            """
+            a = bestfitdic['egress']
+            b = bd['egress'][2] - bd['egress'][0]
+            c = bd['egress'][0] - bd['egress'][1]
+            a = str(round(a, 1))
+            b = str(round(b, 1))
+            c = str(round(c,2))
+            output_dic['Egress'].append(r'$'+a+r'^{+'+b+r'}_{-'+c+'}$')
+
+        else:
+            output_dic['Egress_m'].append("")
+            output_dic['Egress_lower'].append("")
+            output_dic['Egress_upper'].append("")
+            output_dic['Egress_bf'].append("")
+            output_dic['Egress'].append("")
+
+
+        """
+        if problem:
+            print("*****")
             print("Houston we "+ '\u0336'.join('fucked up') + '\u0336' + 
                   " have a problem")
-
-        output_dic['Duration'].append(r'${0}^{1}_{2}$'.format(
-                bestfitdic['duration'],
-                bd['duration'][1],
-                bd['duration'][2],
-                ))
-        output_dic['Ingress'].append(r'${0}^{1}_{2}$'.format(
-                bestfitdic['ingress'],
-                bd['ingress'][1],
-                bd['ingress'][2],
-                ))
-        output_dic['Duration'].append(r'${0}^{1}_{2}$'.format(
-                bestfitdic['egress'],
-                bd['egress'][1],
-                bd['egress'][2],
-                ))
+            print(eb.source, issue)
+            print("*****")
+        """
 
     latex_dic = {
         'MainID':output_dic['MainID'],
         'ID': output_dic['ID'],
-        'Spectral Type':output_dic['Spectral Type'],
         'Obs Start':output_dic['Obs Start'],
         'Duration':output_dic['Duration'],
         'Ingress':output_dic['Ingress'],
         'Egress':output_dic['Egress'],
     }
+
     df_latex = pd.DataFrame(latex_dic)
 
     with open('EclipseFits.tex', 'w') as f:
         f.write(df_latex.to_latex(index=False, escape=False))
         f.close()
-    with open("EclipseFits.tex", 'f') as f:
+    with open("EclipseFits.tex", 'r') as f:
         lines = f.readlines()
         f.close()
     
-    lines.insert(3, "& & & (JD) & (min) & (min) & (min) \\\ \n")
+    lines.insert(3, "& & (JD) & (min) & (min) & (min) \\\ \n")
 
     with open("EclipseFits.tex", 'w') as f:
         contents = "".join(lines)
         f.write(contents)
         f.close()
 
-def main(iterations):
-    print("---Running bootstrap wrapper function---")
-    bootstrapwrapper(iterations)
+def knownEBplot():
+    assert(os.path.isfile("EB_Master.pickle"))
+    with open("EB_Master.pickle", 'rb') as p:
+        eb_list = pickle.load(p)
+
+    for eb in eb_list:
+        if eb.knownEB:
+            known_eb2 = eb
+            known_eb2.fit()
+        else:
+            continue
+
+    os.chdir('Eclipse/'+known_eb2.source)
+    known_eb1 = WDEB(known_eb2.NUVcsv, select=True)
+    known_eb1.fit()
+    os.chdir('../../')
+
+    figK = plt.figure(figsize=(12,6))
+    gsK = gs.GridSpec(2,1)
+    gsK.update(hspace=0)
+    plt.subplots_adjust(top=.98, right=.98, left=.08)
+    figK.text(.02, .5, 'Relative CPS', va='center',
+              rotation='vertical', fontsize=25)
+
+    plt_idx = 0
+    for eb in [known_eb1, known_eb2]:
+        axK = plt.subplot(gsK[plt_idx])
+        axK.errorbar(eb.jd_t_mean, eb.cps_bgsub, yerr=eb.cps_bgsub_err,
+                     color='red', marker='.', ls='', zorder=4, label='NUV')
+        axK.axhline(0, alpha=.3, ls='dotted', color='red')
+
+        #Plot redpoints
+        if len(eb.redpoints) != 0:
+            axK.errorbar(eb.jd_t_mean_red, eb.cps_bgsub_red,
+                        yerr=eb.cps_bgsub_err_red, color='#808080',
+                        marker='.', ls='', zorder=2, alpha=.5,
+                        label='Flagged')
+
+        #Plot other band if exists
+        if eb.FUVall is not None:
+            if len(eb.t_mean_FUV) > 0:
+                axK.errorbar(eb.jd_t_mean_FUV, eb.cps_bgsub_FUV, 
+                            yerr=eb.cps_bgsub_err_FUV,
+                            color='blue', marker='.', ls='',
+                            zorder=1, label='FUV', alpha=.5)
+
+        #Plot fit parameters
+        xarray = np.arange(0, max(eb.jd_t_mean), .1)
+        if eb.fitused == 'full':
+            axK.plot(xarray, piecewise_linear_full(xarray, *eb.fitparams),
+                     lw=4, alpha=.5, color='black')
+
+        elif eb.fitused == 'half':
+            axK.plot(xarray, piecewise_linear_half(xarray, *eb.fitparams),
+                     lw=4, alpha=.5, color='black')
+        else:
+            assert(eb.fitused == 'V')
+            axK.plot(xarray, piecewise_linear_V(xarray, *eb.fitparams),
+                     lw=4, alpha=.5, color='black')
+
+        #Plotting parameters
+        axK.set_ylim(ymax=max(eb.cps_bgsub)*1.2)
+        axK.set_xlim(xmin=-1, xmax=30.5)
+        axK.minorticks_on()
+        axK.tick_params(direction='in', which='both', labelsize=12)
+        axK.yaxis.set_ticks_position('both')
+        axK.xaxis.set_ticks_position('both')
+        axK.tick_params('both', length=8, width=1.8, which='major')
+        axK.tick_params('both', length=4, width=1, which='minor')
+        for axis in ['top', 'bottom', 'left', 'right']:
+            axK.spines[axis].set_linewidth(1.5)
+
+        if plt_idx == 1:
+            axK.set_xlabel("Time Elapsed (min)", fontsize=25)
+
+        #axK.annotate(str(eb.labelnum), xy=(.95, .85), 
+        #            xycoords='axes fraction', color='xkcd:azure', 
+        #            fontsize=20, ha='center', va='center', zorder=4,
+        #            **afont, **txtkwargsw)
+        plt_idx += 1
+    
+    savepath = "KnownEclipse.pdf"
+    figK.savefig(savepath)
+
+
+def main(iterations, overwrite=False):
+    if os.path.isfile('EB_Master.pickle'):
+        if overwrite:
+            print("---Running bootstrap wrapper function---")
+            bootstrapwrapper(iterations)
+        else:
+            print("---Using existing pickle list---")
     print("---Generating LaTeX table---")
     genTable()
     print("---Creating tower plot---")
+    TowerPlot()
+    print("---Generating known eclipse plot---")
+    knownEBplot()
 
 
                         
@@ -857,10 +1048,8 @@ if __name__ == '__main__':
             default=False, action='store_true')
     args = parser.parse_args()
 
-    #if args.tower:
-    #    TowerPlot()
-    #else:
-    #    main(iterations=args.iterations)
-    eb = WDEB('Gaia-DR2-6645284902019884928-NUV.csv')
-    eb.fit(save=True)
+    if args.tower:
+        TowerPlot()
+    else:
+        main(iterations=args.iterations)
     
