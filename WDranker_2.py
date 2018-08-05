@@ -73,9 +73,7 @@ def badflag_bool(x):
             continue
     return False
 
-def catalog_match(source):
-    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
-    bigcatalog = pd.read_csv(catalogpath)
+def catalog_match(source, bigcatalog):
 
     nhyphens = len(np.where(np.array(list(source)) == '-')[0])
     if ( (source[0:4] == 'Gaia') or
@@ -86,37 +84,54 @@ def catalog_match(source):
             ('FOCAP' in source) or
             ('KAB' in source) or
             ('NCA' in source)):
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] 
+                                      == source.replace('-', ' '))[0]
     elif source[0:5] == 'ATLAS':
         bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
     elif source[0:2] == 'LP':
         if nhyphens == 2:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] 
+                                      == source.replace('-', ' ', 1))[0]
         elif nhyphens == 3:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1)[::-1].replace('-',' ',1)[::-1])[0]
+            source_r = source.replace('-', ' ', 1)[::-1]
+            source_r = source_r.replace('-', ' ',1)[::-1]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] == source_r)[0]
         else:
             bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
     elif source[0:3] == '2QZ':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ', 1))[0]
+        bigcatalog_idx = np.where(bigcatalog['MainID'] 
+                                  == source.replace('-', ' ', 1))[0]
     elif source[0:2] == 'BD':
         if nhyphens == 2:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source[::-1].replace('-', ' ', 1)[::-1])[0]
+            bigcatalog_idx = np.where(bigcatalog['MainID'] 
+                    == source[::-1].replace('-', ' ', 1)[::-1])[0]
         else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' '))[0]
+            bigcatalog_idx = np.where(
+                    bigcatalog['MainID'] == source.replace('-', ' '))[0]
     else:   #SDSS sources go in here
         if nhyphens == 1:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
+            bigcatalog_idx = np.where(
+                    bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
         else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source.replace('-', ' ',nhyphens-1))[0]
+            bigcatalog_idx = np.where(
+                    bigcatalog['MainID'] == 
+                    source.replace('-', ' ',nhyphens-1))[0]
 
     return(bigcatalog_idx)
 
 #Main ranking function
-def main(csvname, fap, prange, w_pgram,
-         w_expt, w_WS, w_mag, w_known, 
-         w_flag, w_magfit, comment):
+def main(csvname,
+         makeplot,
+         fap=.05, prange=.0005, 
+         w_pgram=1,
+         w_expt=.2, 
+         w_WS=.30, 
+         w_magfit=.25,
+         comment=False):
+
     ###Path assertions###
-    catalogpath = "/home/dmrowan/WhiteDwarfs/Catalogs/MainCatalog_reduced_simbad_asassn.csv"
+    catalogpath = ("/home/dmrowan/WhiteDwarfs/"
+                  +"Catalogs/MainCatalog_reduced_simbad_asassn.csv")
     sigmamag_path_NUV = "Catalog/SigmaMag_NUV.csv"
     sigmamag_percentile_path_NUV = "Catalog/magpercentiles_NUV.csv"
     sigmamag_path_FUV = "Catalog/SigmaMag_FUV.csv"
@@ -151,7 +166,6 @@ def main(csvname, fap, prange, w_pgram,
         return
     assert(band is not None)
 
-    print(source, band)
     bandcolors = {'NUV':'red', 'FUV':'blue'}
     alldata = pd.read_csv(csvpath)
     ###Alldata table corrections###
@@ -214,10 +228,12 @@ def main(csvname, fap, prange, w_pgram,
     lowerbound = percentile_df['lower']
     upperbound = percentile_df['upper']
     if m_ab < 20.75:
-        sigmamag_idx = np.where(abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
-        sigmafit_val = float(lowerbound[sigmamag_idx])
+        sigmamag_idx = np.where(
+                abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
+        sigmafit_val = float(percentile50[sigmamag_idx])
         sigmafit_val_upper = float(upperbound[sigmamag_idx])
-        if sigma_mag_all > sigmafit_val and sigma_mag_all < sigmafit_val_upper:
+        if ((sigma_mag_all > sigmafit_val) 
+                and (sigma_mag_all < sigmafit_val_upper)):
             c_magfit = sigma_mag_all / sigmafit_val
         elif sigma_mag_all >= sigmafit_val_upper:
             c_magfit = sigmafit_val_upper / sigmafit_val
@@ -240,27 +256,34 @@ def main(csvname, fap, prange, w_pgram,
         other_band_exists = False
 
     if other_band_exists:
-        print("Generating additional LC data for " + band_other + " band")
+        #print("Generating additional LC data for " + band_other + " band")
         alldata_other = pd.read_csv(csvpath_other)
         #Drop bad rows, flagged rows
-        idx_high_cps_other = np.where( (alldata_other['cps_bgsub'] > 10e10) | 
-                (alldata_other['cps_bgsub_err'] > 10e10) | 
-                (alldata_other['counts'] < 1) | 
-                (alldata_other['counts'] > 100000)  |
-                (alldata_other['flux_bgsub'] < 0) |
-                (alldata_other['cps_bgsub'] < -10000) )[0]
-        idx_other_flagged_bool = [ badflag_bool(x) for x in alldata_other['flags'] ]
-        idx_other_flagged = np.where(np.array(idx_other_flagged_bool) == True)[0]
+        idx_high_cps_other = np.where( (alldata_other['cps_bgsub'] > 10e10) 
+                | (alldata_other['cps_bgsub_err'] > 10e10) 
+                | (alldata_other['counts'] < 1) 
+                | (alldata_other['counts'] > 100000)
+                | (alldata_other['flux_bgsub'] < 0)
+                | (alldata_other['cps_bgsub'] < -10000) )[0]
+        idx_other_flagged_bool = [ badflag_bool(x) 
+                                   for x in alldata_other['flags'] ]
+        idx_other_flagged = np.where(
+                np.array(idx_other_flagged_bool) == True)[0]
         idx_other_expt = np.where(alldata_other['exptime'] < 10)[0]
         
-        idx_other_todrop = np.unique(np.concatenate([idx_high_cps_other, idx_other_flagged, idx_other_expt]))
+        idx_other_todrop = np.unique(np.concatenate([idx_high_cps_other, 
+                                                     idx_other_flagged, 
+                                                     idx_other_expt]))
         alldata_other = alldata_other.drop(index=idx_other_todrop)
         alldata_other = alldata_other.reset_index(drop=True)
 
         stdev_other = np.std(alldata_other['flux_bgsub'])
         if len(alldata_other['flux_bgsub']) != 0: 
             if not alldata_other['flux_bgsub'].isnull().all():
-                idx_fivesigma_other = np.where( abs((alldata_other['flux_bgsub'] - np.nanmean(alldata_other['flux_bgsub']))) > 5*stdev_other )[0]
+                idx_fivesigma_other = np.where( 
+                        abs((alldata_other['flux_bgsub'] 
+                            - np.nanmean(alldata_other['flux_bgsub']))) 
+                        > 5*stdev_other )[0]
                 alldata_other = alldata_other.drop(index=idx_fivesigma_other)
                 alldata_other = alldata_other.reset_index(drop=True)
 
@@ -278,12 +301,16 @@ def main(csvname, fap, prange, w_pgram,
         alldata_tmean_other = alldata_other['t_mean']
         alldata_flux_bgsub_other = alldata_other['flux_bgsub']
         alldata_medianflux_other = np.median(alldata_flux_bgsub_other)
-        alldata_flux_bgsub_other = (( alldata_flux_bgsub_other / alldata_medianflux_other ) - 1.0) * 1000
-        alldata_flux_bgsub_err_other = (alldata_other['flux_bgsub_err'] / alldata_medianflux_other) * 1000
+        alldata_flux_bgsub_other = (
+                (alldata_flux_bgsub_other / 
+                    alldata_medianflux_other ) - 1.0) * 100
+        alldata_flux_bgsub_err_other = (
+                alldata_other['flux_bgsub_err'] 
+                / alldata_medianflux_other) * 100
 
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
-    bigcatalog_idx = catalog_match(source)
+    bigcatalog_idx = catalog_match(source, bigcatalog)
     if len(bigcatalog_idx) == 0:
         print(source, "Not in catalog")
         with open("../brokensources.txt", 'a') as f:
@@ -301,7 +328,8 @@ def main(csvname, fap, prange, w_pgram,
     gmag = bigcatalog['sdss_g'][bigcatalog_idx]
 
     #Known information changes rank:
-    if str(binarity) != 'nan' or str(variability) != 'nan' or str(hasdisk) != 'nan': 
+    if (str(binarity) != 'nan' 
+        or str(variability) != 'nan' or str(hasdisk) != 'nan'): 
         c_known = 1
     else:
         c_known = 0
@@ -319,7 +347,8 @@ def main(csvname, fap, prange, w_pgram,
                 breaks.append(i)
 
     data = np.split(alldata, breaks)
-    print("Dividing {0} data for {1} into {2} exposure groups".format(band, source, str(len(data))))
+    print("Dividing {0} data for {1} into {2} exposure groups".format(
+        band, source, str(len(data))))
 
     #Initialize Lists
     df_number = 1
@@ -352,10 +381,12 @@ def main(csvname, fap, prange, w_pgram,
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
 
-        #Find indicies of data above 5 sigma of mean , flagged points, and points with
-        # less than 10 seconds of exposure time
+        #Find indicies of data above 5 sigma of mean , 
+            #flagged points, and points with less than 10 seconds of exp
         stdev = np.std(df['flux_bgsub'])
-        bluepoints = np.where( abs(df['flux_bgsub'] - np.nanmean(df['flux_bgsub'])) > 5*stdev )[0]
+        bluepoints = np.where( 
+                abs(df['flux_bgsub'] - np.nanmean(df['flux_bgsub'])) 
+                > 5*stdev )[0]
         flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
         redpoints1 = np.where(np.array(flag_bool_vals) == True)[0]
         redpoints2 = np.where(df['exptime'] < 10)[0]
@@ -364,8 +395,11 @@ def main(csvname, fap, prange, w_pgram,
         bluepoints = bluepoints + df.index[0]
 
         droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
+        #Correction for flagged time
+        t_flagged = (len(droppoints) * 15) / 1000 
+        c_exposure = c_exposure - t_flagged
         flagged_ratio = len(droppoints) / df.shape[0]
-        c_flagged = -1*flagged_ratio
+        #c_flagged = -1*flagged_ratio
         df_reduced = df.drop(index=droppoints)
         df_reduced = df_reduced.reset_index(drop=True)
         
@@ -380,55 +414,72 @@ def main(csvname, fap, prange, w_pgram,
             continue
 
         #If first point is not within 3 sigma, remove
-        if (df_reduced['flux_bgsub'][df_reduced.index[0]] - np.nanmean(df['flux_bgsub'])) > 3*stdev:
+        if (df_reduced['flux_bgsub'][df_reduced.index[0]] 
+                - np.nanmean(df['flux_bgsub'])) > 3*stdev:
             df_reduced = df_reduced.drop(index=df_reduced.index[0])
             df_reduced = df_reduced.reset_index(drop=True)
 
         #If last point is not within 3 sigma, remove
-        if (df_reduced['flux_bgsub'][df_reduced.index[-1]] - np.nanmean(df['flux_bgsub'])) > 3*stdev:
+        if (df_reduced['flux_bgsub'][df_reduced.index[-1]] 
+                - np.nanmean(df['flux_bgsub'])) > 3*stdev:
             df_reduced = df_reduced.drop(index=df_reduced.index[-1])
             df_reduced = df_reduced.reset_index(drop=True)
 
         ###Grab magnitude information###
         df_m_ab = np.nanmean(df_reduced['mag_bgsub'])
-        df_sigma_mag = np.nanstd( (df_reduced['mag_bgsub_err_1'] + df_reduced['mag_bgsub_err_2'])/2.0 )
+        df_sigma_mag = np.nanstd( 
+                (df_reduced['mag_bgsub_err_1'] 
+                + df_reduced['mag_bgsub_err_2'])/2.0 )
 
         magdic["mag"].append(df_m_ab)
         magdic["sigma"].append(df_sigma_mag)
         magdic["weight"].append(.25)
         
-        #Get the flux_bgsub, error and time columns and make correction for relative scales
+        #Correction for relative scales
         flux_bgsub = df_reduced['flux_bgsub']
         flux_bgsub_median = np.median(flux_bgsub)
         flux_bgsub = (( flux_bgsub / flux_bgsub_median ) - 1.0) * 1000
-        flux_bgsub_err = (df_reduced['flux_bgsub_err'] / flux_bgsub_median) * 1000
+        flux_bgsub_err = (
+                df_reduced['flux_bgsub_err'] / flux_bgsub_median) * 1000
         t_mean = df_reduced['t_mean']
         
-        #If we have data in the other band, find points corresponding to this exposure group
-        #First get the indicies corresponding to this group in the other band
+        #Math points in other band
         if other_band_exists:
-            idx_exposuregroup_other = np.where( (alldata_tmean_other > firsttime) & (alldata_tmean_other < lasttime))[0]
-            t_mean_other = np.array(alldata_tmean_other[idx_exposuregroup_other] - firsttime_mean)
-            flux_bgsub_other = np.array(alldata_flux_bgsub_other[idx_exposuregroup_other])
-            flux_bgsub_err_other = np.array(alldata_flux_bgsub_err_other[idx_exposuregroup_other])
+            idx_exposuregroup_other = np.where( 
+                    (alldata_tmean_other > firsttime) 
+                    & (alldata_tmean_other < lasttime))[0]
+            t_mean_other = np.array(
+                    alldata_tmean_other[idx_exposuregroup_other] 
+                    - firsttime_mean)
+            flux_bgsub_other = np.array(
+                    alldata_flux_bgsub_other[idx_exposuregroup_other])
+            flux_bgsub_err_other = np.array(
+                    alldata_flux_bgsub_err_other[idx_exposuregroup_other])
             idx_flux_nan_other = np.where(np.isnan(flux_bgsub_other))[0]
             if len(idx_flux_nan_other) != 0:
                 t_mean_other = np.delete(t_mean_other, idx_flux_nan_other)
-                flux_bgsub_other = np.delete(flux_bgsub_other, idx_flux_nan_other)
-                flux_bgsub_err_other = np.delete(flux_bgsub_err_other, idx_flux_nan_other)
+                flux_bgsub_other = np.delete(
+                        flux_bgsub_other, idx_flux_nan_other)
+                flux_bgsub_err_other = np.delete(
+                        flux_bgsub_err_other, idx_flux_nan_other)
 
         #Make the correction for relative scales for redpoints and bluepoints
         if len(redpoints) != 0:
             flux_bgsub_red = df['flux_bgsub'][redpoints]
-            flux_bgsub_red = ((flux_bgsub_red / flux_bgsub_median) - 1.0) * 1000
-            flux_bgsub_err_red = (df['flux_bgsub_err'][redpoints] / flux_bgsub_median) * 1000
+            flux_bgsub_red = (
+                    (flux_bgsub_red / flux_bgsub_median) - 1.0) * 1000
+            flux_bgsub_err_red = (
+                    df['flux_bgsub_err'][redpoints] 
+                    / flux_bgsub_median) * 1000
             t_mean_red = df['t_mean'][redpoints]
         if len(bluepoints) != 0:
             flux_bgsub_blue = df['flux_bgsub'][bluepoints]
-            flux_bgsub_blue = ((flux_bgsub_blue / flux_bgsub_median) - 1.0) * 1000
-            flux_bgsub_err_blue = (df['flux_bgsub_err'][bluepoints] / flux_bgsub_median) * 1000
+            flux_bgsub_blue = (
+                    (flux_bgsub_blue / flux_bgsub_median) - 1.0) * 1000
+            flux_bgsub_err_blue = (
+                    df['flux_bgsub_err'][bluepoints] 
+                    / flux_bgsub_median) * 1000
             t_mean_blue = df['t_mean'][bluepoints]
-
 
         ###Periodogram Creation###
         #Fist do the periodogram of the data
@@ -498,12 +549,18 @@ def main(csvname, fap, prange, w_pgram,
             sspeaks_freq = [ peak[0] for peak in sspeaks ]
             sspeaks_fap = [ peak[2] for peak in sspeaks ] 
             sspeaks_ratio = [ peak[3] for peak in sspeaks ]
-            strongest_freq = (sspeaks_freq[np.where(np.asarray(sspeaks_amp) == max(sspeaks_amp))[0][0]])
-            strongest_period_ratio = (sspeaks_ratio[np.where(np.asarray(sspeaks_amp)==max(sspeaks_amp))[0][0]])
-            strongest_period_fap = (sspeaks_fap[np.where(np.asarray(sspeaks_amp)==max(sspeaks_amp))[0][0]])
+            strongest_freq = (
+                    sspeaks_freq[np.where(np.asarray(sspeaks_amp) 
+                    == max(sspeaks_amp))[0][0]])
+            strongest_period_ratio = (
+                    sspeaks_ratio[np.where(np.asarray(sspeaks_amp)
+                    ==max(sspeaks_amp))[0][0]])
+            strongest_period_fap = (
+                    sspeaks_fap[np.where(np.asarray(sspeaks_amp)
+                    ==max(sspeaks_amp))[0][0]])
             strongest_period = 1.0 / strongest_freq
-            strongest_periods_list.append((strongest_period[0], strongest_period_ratio))
-
+            strongest_periods_list.append(
+                    (strongest_period[0], strongest_period_ratio))
 
         c_periodogram = 0
         for peak in sspeaks:
@@ -514,11 +571,7 @@ def main(csvname, fap, prange, w_pgram,
 
         c_pgram_vals.append(c_periodogram)
 
-        """
-        Welch Stetson Variability Metric.
-        Iterate through each time to find if there is a matching time in other band.
-        Initialize lists of tuples (main, other) if exists
-        """
+        #Welch Stetson Variability Metric.
         ws_times = [] 
         ws_flux = [] 
         ws_flux_err = [] 
@@ -545,7 +598,10 @@ def main(csvname, fap, prange, w_pgram,
                 ws_flux.append( (f, None) )
                 ws_flux_err.append( (ferr, None) )
 
-        assert(len(ws_times) == len(ws_flux) == len(ws_flux_err) == len(t_mean))
+        assert(len(ws_times) 
+               == len(ws_flux) 
+               == len(ws_flux_err) 
+               == len(t_mean))
         ws_sum = 0
         for i in range(len(ws_flux)):
             fluxtup = ws_flux[i]
@@ -553,7 +609,8 @@ def main(csvname, fap, prange, w_pgram,
             if math.isnan(errtup[0]):
                 deltaband=0
             else:
-                deltaband = (fluxtup[0] - np.nanmean(flux_bgsub)) / errtup[0]
+                deltaband = ((fluxtup[0] - np.nanmean(flux_bgsub)) 
+                              / errtup[0])
             if fluxtup[1] is None:
                 deltaother = 1
             else:
@@ -564,7 +621,9 @@ def main(csvname, fap, prange, w_pgram,
                     if str(errtup[1]) == str(float('NaN')):
                         deltraother = 1
                     else:
-                        deltaother = (fluxtup[1] - np.nanmean(flux_bgsub_other)) / errtup[1]
+                        deltaother = ((fluxtup[1] 
+                                       - np.nanmean(flux_bgsub_other)) 
+                                       / errtup[1])
 
             ws_sum += deltaband*deltaother
         
@@ -587,111 +646,132 @@ def main(csvname, fap, prange, w_pgram,
             autocorr_result = np.zeros(numberofzeros)
 
         #####GENERATE RATING#####
-        C = (w_pgram * c_periodogram) + (w_expt * c_exposure) + (w_mag * c_mag) + (w_flag * c_flagged) + (w_known * c_known) + (w_magfit * c_magfit) + (w_WS * c_ws)
+        C = ((w_pgram * c_periodogram) 
+            + (w_expt * c_exposure) 
+            + (w_magfit * c_magfit) 
+            + (w_WS * c_ws))
         if C < 0:
             C = 0
         print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
 
-        
+        if makeplot:
+            ###Generate plot/subplot information###
+            fig = plt.figure(df_number, figsize=(16,12))
+            gs.GridSpec(4,4)
+            fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+            fig.suptitle(
+                    "Exposure group {0} with {1}s \nRanking: "
+                    +"{2} {3} significant peaks".format(
+                        str(df_number), str(exposure), 
+                        str(C), str(len(sspeaks))))
 
-        ###Generate plot/subplot information###
-        fig = plt.figure(df_number, figsize=(16,12))
-        gs.GridSpec(4,4)
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-        fig.suptitle("Exposure group {0} with {1}s \nRanking: {2} {3} significant peaks".format(str(df_number), str(exposure), str(C), str(len(sspeaks))))
+            #Subplot for LC
+            plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
+            #Convert to JD here as well
+            jd_t_mean = [ gphoton_utils.calculate_jd(t+firsttime_mean) 
+                          for t in t_mean ]
+            plt.errorbar(jd_t_mean, flux_bgsub, yerr=flux_bgsub_err, 
+                         color=bandcolors[band], marker='.', ls='', 
+                         zorder=4, label=band)
+            plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
+            if len(redpoints) != 0: 
+                jd_t_mean_red = [ gphoton_utils.calculate_jd(t+firsttime_mean) 
+                                  for t in t_mean_red ]
+                plt.errorbar(jd_t_mean_red, flux_bgsub_red, 
+                             yerr=flux_bgsub_err_red, color='#808080', 
+                             marker='.', ls='', zorder=2, alpha=.5, 
+                             label='Flagged')
+            if len(bluepoints) != 0: 
+                jd_t_mean_blue = [ gphoton_utils.calculate_jd(
+                                   t+firsttime_mean) 
+                                   for t in t_mean_blue ]
+                plt.errorbar(jd_t_mean_blue, flux_bgsub_blue, 
+                             yerr=flux_bgsub_err_blue, 
+                             color='green', marker='.', ls='', 
+                             zorder=3, alpha=.5, label='SigmaClip')
+            if other_band_exists:
+                jd_t_mean_other = [ gphoton_utils.calculate_jd(
+                                    t+firsttime_mean) 
+                                    for t in t_mean_other ]
+                plt.errorbar(jd_t_mean_other, 
+                             flux_bgsub_other, 
+                             yerr=flux_bgsub_err_other, 
+                             color=bandcolors[band_other], marker='.', 
+                             ls='', zorder=1, label=band_other, alpha=.25)
 
-        #Subplot for LC
-        plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
-        #Convert to JD here as well
-        jd_t_mean = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean ]
-        plt.errorbar(jd_t_mean, flux_bgsub, yerr=flux_bgsub_err, color=bandcolors[band], marker='.', ls='', zorder=4, label=band)
-        #plt.errorbar(jd_t_mean, flux_bgsub,  color=bandcolors[band], marker='.', ls='-', zorder=4, label=band)
-        plt.axhline(alpha=.3, ls='dotted', color=bandcolors[band])
-        if len(redpoints) != 0: #points aren't even red now...
-            jd_t_mean_red = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_red ]
-            plt.errorbar(jd_t_mean_red, flux_bgsub_red, yerr=flux_bgsub_err_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
-            #plt.errorbar(jd_t_mean_red, flux_bgsub_red, color='#808080', marker='.', ls='', zorder=2, alpha=.5, label='Flagged')
-        if len(bluepoints) != 0: #these points aren't blue either...
-            jd_t_mean_blue = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_blue ]
-            plt.errorbar(jd_t_mean_blue, flux_bgsub_blue, yerr=flux_bgsub_err_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
-            #plt.errorbar(jd_t_mean_blue, flux_bgsub_blue, color='green', marker='.', ls='', zorder=3, alpha=.5, label='SigmaClip')
-        if other_band_exists:
-            #introduce offset here
-            jd_t_mean_other = [ gphoton_utils.calculate_jd(t+firsttime_mean) for t in t_mean_other ]
-            plt.errorbar(jd_t_mean_other, flux_bgsub_other+2*max(flux_bgsub), yerr=flux_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, label=band_other, alpha=.25)
-            plt.axhline(y=2*max(flux_bgsub), alpha=.15, ls='dotted', color=bandcolors[band_other])
+            plt.title(band+' light curve')
+            plt.xlabel('Time JD')
+            plt.ylabel('Flux mmi')
+            plt.legend(loc=1)
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-        plt.title(band+' light curve')
-        plt.xlabel('Time JD')
-        plt.ylabel('Flux mmi')
-        plt.legend(loc=1)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            #Subplot for autocorr
+            plt.subplot2grid((4,4), (2,2), colspan=1, rowspan=2)
+            plt.plot(autocorr_result, 'b-', label='data')
+            plt.title('Autocorrelation')
+            plt.xlabel('Delay')
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-        #Subplot for autocorr
-        plt.subplot2grid((4,4), (2,2), colspan=1, rowspan=2)
-        plt.plot(autocorr_result, 'b-', label='data')
-        #ax[1][0].plot(ac_x, fitfunc(ac_x, *popt), 'g-', label='fit')
-        #ax[1][0].plot(residuals, 'r--', alpha=.25, label='residuals')
-        #ax[1][0].plot(ac_x, ac_x*params[0]+params[1], 'r--', alpha=.5, label='linear fit')
-        plt.title('Autocorrelation')
-        plt.xlabel('Delay')
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        #ax[1][0].legend()
+            #Subplot for periodogram
+            plt.subplot2grid((4,4), (2,0), colspan=2, rowspan=2)
+            plt.plot(freq, amp, 'g-', label='Data')
+            plt.plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
+            plt.plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
+            plt.title(band+' Periodogram')
+            plt.xlabel('Freq [Hz]')
+            plt.ylabel('Amplitude')
+            plt.xlim(0, np.max(freq))
+            try:
+                plt.ylim(0, np.max(amp)*2)
+            except:
+                print("Issue with periodogram axes")
+            if any(np.isnan(x) for x in top5amp_detrad):
+                print("No detrad peaks for exposure group " + str(df_number))
+            else:
+                for tup in bad_detrad:
+                    plt.axvspan(tup[0], tup[1], alpha=.1, color='black')
+            
+            #ax[0][1].axvline(x=nyquistfreq, color='r', ls='--')
+            for level in faplevels:
+                idx = np.where(level == faplevels)[0][0]
+                fap = probabilities[idx]
+                plt.axhline(level, color='black', alpha = .5, 
+                            ls = '--', label = 'FAP: '+str(fap))
+            plt.axhline(ditherfaplevel, color='black', alpha=.5, 
+                        ls=':', label = 'FAP: '+str(ditherfapval))
 
-        #Subplot for periodogram
-        plt.subplot2grid((4,4), (2,0), colspan=2, rowspan=2)
-        plt.plot(freq, amp, 'g-', label='Data')
-        plt.plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
-        plt.plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
-        plt.title(band+' Periodogram')
-        plt.xlabel('Freq [Hz]')
-        plt.ylabel('Amplitude')
-        plt.xlim(0, np.max(freq))
-        try:
-            plt.ylim(0, np.max(amp)*2)
-        except:
-            print("Issue with periodogram axes")
-        if any(np.isnan(x) for x in top5amp_detrad):
-            print("No detrad peaks for exposure group " + str(df_number))
-        else:
-            for tup in bad_detrad:
-                plt.axvspan(tup[0], tup[1], alpha=.1, color='black')
-        
-        #ax[0][1].axvline(x=nyquistfreq, color='r', ls='--')
-        for level in faplevels:
-            idx = np.where(level == faplevels)[0][0]
-            fap = probabilities[idx]
-            plt.axhline(level, color='black', alpha = .5, ls = '--', label = 'FAP: '+str(fap))
-        plt.axhline(ditherfaplevel, color='black', alpha=.5, ls=':', label = 'FAP: '+str(ditherfapval))
+            plt.legend()
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-        plt.legend()
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            #Subplot for png image
+            plt.subplot2grid((4,4), (2,3), colspan=1, rowspan=2)
+            pngfile = ("/home/dmrowan/WhiteDwarfs/GALEXphot/pngs/"
+                      +source+".png")
+            img1 = mpimg.imread(pngfile)
+            plt.imshow(img1)
+            #Turn of axes 
+            #ax[1][1].axis('off')
+            plt.axis('off')
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-        #Subplot for png image
-        plt.subplot2grid((4,4), (2,3), colspan=1, rowspan=2)
-        pngfile = "/home/dmrowan/WhiteDwarfs/GALEXphot/pngs/"+source+".png"
-        img1 = mpimg.imread(pngfile)
-        plt.imshow(img1)
-        #Turn of axes 
-        #ax[1][1].axis('off')
-        plt.axis('off')
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            saveimagepath = str(
+                    "PDFs/"+source+"-"+band+"qlp"+str(df_number)+".pdf")
+            fig.savefig(saveimagepath)
 
-        saveimagepath = str("PDFs/"+source+"-"+band+"qlp"+str(df_number)+".pdf")
-        fig.savefig(saveimagepath)
-        df_numbers_run.append(df_number)
-        df_number += 1
-
-        #Close figure
-        fig.clf()
-        plt.close('all')
+            #Close figure
+            fig.clf()
+            plt.close('all')
         
         #Information for big light curve
         biglc_time.append(np.nanmean(t_mean + firsttime_mean))
         biglc_counts.append(np.nanmean(flux_bgsub))
-        biglc_err.append(np.std(flux_bgsub_err) / np.sqrt(df_reduced.shape[0]))
+        biglc_err.append(
+                np.std(flux_bgsub_err) / np.sqrt(df_reduced.shape[0]))
+
+        df_numbers_run.append(df_number)
+        df_number += 1
 
 
 
@@ -713,12 +793,15 @@ def main(csvname, fap, prange, w_pgram,
         c_ws_max = 0
         c_exp_max = 0
         c_pgram_max = 0
-    print(source, "Total rank: " + str(totalrank), "Best rank: " + str(bestrank), "Best group: " + str(best_expt_group))
+    print(source, "Total rank: " + str(totalrank), 
+          "Best rank: " + str(bestrank), 
+          "Best group: " + str(best_expt_group))
 
     ###Commenting/Interactive Mode###
     if comment:
         if bestrank >= 0:
-            bestimagepath = "PNGs/"+source+"-"+band+"qlp"+str(best_expt_group)+".png"
+            bestimagepath = ("PNGs/"+source+"-"
+                            +band+"qlp"+str(best_expt_group)+".png")
             subprocess.call(['display', bestimagepath])
             comment_value = input("Message code: ")
     else:
@@ -728,7 +811,8 @@ def main(csvname, fap, prange, w_pgram,
     all_periods = [ tup[0] for tup in strongest_periods_list ]
     all_ratios = [ tup[1] for tup in strongest_periods_list ] 
     if len(all_periods) > 1:
-        period_to_save = all_periods[np.where(np.asarray(all_ratios) == max(all_ratios))[0][0]]
+        period_to_save = all_periods[np.where(np.asarray(all_ratios) 
+                                              == max(all_ratios))[0][0]]
     elif len(all_periods) == 1:
         period_to_save = all_periods[0]
         period_to_save = round(period_to_save,3)
@@ -762,287 +846,333 @@ def main(csvname, fap, prange, w_pgram,
     dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv", index=False)
 
 
-    #####Generate multiplage pdf#####
+    if makeplot:
+        #####Generate multiplage pdf#####
 
-    ###Page 1###
-    #Drop flagged rows from alldata
-    alldata_flag_bool_vals = [ badflag_bool(x) for x in alldata['flags'] ]
-    alldata_flag_idx = np.where(np.array(alldata_flag_bool_vals) == True)[0]
-    alldata = alldata.drop(index = alldata_flag_idx)
-    alldata = alldata.reset_index(drop=True)
-    #Make the correction for relative scales
-    alldata_tmean = alldata['t_mean']
-    alldata_flux_bgsub = alldata['flux_bgsub']
-    alldata_medianflux = np.nanmedian(alldata_flux_bgsub)
-    alldata_flux_bgsub = ( alldata_flux_bgsub / alldata_medianflux ) - 1.0
-    alldata_flux_bgsub_err = alldata['flux_bgsub_err'] / alldata_medianflux
+        ###Page 1###
+        #Drop flagged rows from alldata
+        alldata_flag_bool_vals = [ badflag_bool(x) for x in alldata['flags'] ]
+        alldata_flag_idx = np.where(
+                np.array(alldata_flag_bool_vals) == True)[0]
+        alldata = alldata.drop(index = alldata_flag_idx)
+        alldata = alldata.reset_index(drop=True)
+        #Make the correction for relative scales
+        alldata_tmean = alldata['t_mean']
+        alldata_flux_bgsub = alldata['flux_bgsub']
+        alldata_medianflux = np.nanmedian(alldata_flux_bgsub)
+        alldata_flux_bgsub = ( alldata_flux_bgsub / alldata_medianflux ) - 1.0
+        alldata_flux_bgsub_err = (alldata['flux_bgsub_err'] 
+                                  / alldata_medianflux)
 
-    #Convert to JD
-    alldata_jd_tmean = [ gphoton_utils.calculate_jd(t) for t in alldata_tmean ] 
-    biglc_jd_time = [ gphoton_utils.calculate_jd(t) for t in biglc_time ]
-    if other_band_exists:
-        alldata_jd_tmean_other = [ gphoton_utils.calculate_jd(t) for t in alldata_tmean_other ]
-
-    #See if ASASSN data exists:
-    if type(bigcatalog['ASASSNname'][bigcatalog_idx]) != str:
-        asassn_exists = False
-    else:
-        asassn_exists = True
-        asassn_name = bigcatalog['ASASSNname'][bigcatalog_idx]
-
-    #Plot ASASSN data
-    if asassn_exists:
-        print("ASASSN data exists")
-        figall = plt.figure(figsize=(16,12))
-        gs.GridSpec(2, 2)
-        figall.tight_layout(rect=[0, .03, 1, .95])
-        #Plot total light curve
-        plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
-        plt.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
-        plt.errorbar(alldata_jd_tmean, alldata_flux_bgsub, yerr=alldata_flux_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
-        plt.xlabel('Time [s]')
-        plt.ylabel('Relative Counts per Second')
-        #Plot data in other band
+        #Convert to JD
+        alldata_jd_tmean = [ gphoton_utils.calculate_jd(t) 
+                             for t in alldata_tmean ] 
+        biglc_jd_time = [ gphoton_utils.calculate_jd(t) for t in biglc_time ]
         if other_band_exists:
-            print("Plotting additional LC data for " + band_other + " band")
-            plt.errorbar(alldata_jd_tmean_other, alldata_flux_bgsub_other, yerr=alldata_flux_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
-        plt.xlabel('Time [s]')
-        plt.ylabel('Flux MMI')
-        plt.legend()
+            alldata_jd_tmean_other = [ gphoton_utils.calculate_jd(t) 
+                                       for t in alldata_tmean_other ]
+
+        #See if ASASSN data exists:
+        if type(bigcatalog['ASASSNname'][bigcatalog_idx]) != str:
+            asassn_exists = False
+        else:
+            asassn_exists = True
+            asassn_name = bigcatalog['ASASSNname'][bigcatalog_idx]
 
         #Plot ASASSN data
-        plt.subplot2grid((2,2), (1,0), colspan=1, rowspan=1)
-        ASASSN_output_V = readASASSN('../ASASSNphot_2/'+asassn_name+'_V.dat')
-        ASASSN_JD_V = ASASSN_output_V[0]
-        ASASSN_mag_V = ASASSN_output_V[1]
-        ASASSN_mag_err_V = ASASSN_output_V[2]
+        if asassn_exists:
+            print("ASASSN data exists")
+            figall = plt.figure(figsize=(16,12))
+            gs.GridSpec(2, 2)
+            figall.tight_layout(rect=[0, .03, 1, .95])
+            #Plot total light curve
+            plt.subplot2grid((2,2), (0,0), colspan=2, rowspan=1)
+            plt.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, 
+                         color=bandcolors[band], marker='.', ls='-',  
+                         zorder=3, ms=15, label=band)
+            plt.errorbar(alldata_jd_tmean, alldata_flux_bgsub, 
+                         yerr=alldata_flux_bgsub_err, color='black', 
+                         marker='.', zorder=2, ls='', alpha=.125)
+            plt.xlabel('Time [s]')
+            plt.ylabel('Relative Counts per Second')
+            #Plot data in other band
+            if other_band_exists:
+                print("Plotting additional LC data for " + 
+                      band_other + " band")
+                plt.errorbar(alldata_jd_tmean_other, alldata_flux_bgsub_other, 
+                             yerr=alldata_flux_bgsub_err_other, 
+                             color=bandcolors[band_other], marker='.', 
+                             ls='', zorder=1, alpha=.25, label=band_other)
+            plt.xlabel('Time [s]')
+            plt.ylabel('Flux MMI')
+            plt.legend()
 
-        ASASSN_output_g = readASASSN('../ASASSNphot_2/'+asassn_name+'_g.dat')
-        ASASSN_JD_g = ASASSN_output_g[0]
-        ASASSN_mag_g = ASASSN_output_g[1]
-        ASASSN_mag_err_g = ASASSN_output_g[2]
+            #Plot ASASSN data
+            plt.subplot2grid((2,2), (1,0), colspan=1, rowspan=1)
+            ASASSN_output_V = readASASSN(
+                    '../ASASSNphot_2/'+asassn_name+'_V.dat')
+            ASASSN_JD_V = ASASSN_output_V[0]
+            ASASSN_mag_V = ASASSN_output_V[1]
+            ASASSN_mag_err_V = ASASSN_output_V[2]
 
-        plt.errorbar(ASASSN_JD_V, ASASSN_mag_V, yerr=ASASSN_mag_err_V, color='blue', ls='-', label='V band', ecolor='gray')
-        plt.errorbar(ASASSN_JD_g, ASASSN_mag_g, yerr=ASASSN_mag_err_g, color='green', ls='-', label='g band', ecolor='gray')
-        #Having some issues here, set default ranges if there is a problem
-        try:
-            maxmag_g = max(ASASSN_mag_g)
-            minmag_g = min(ASASSN_mag_g)
-            minmag_V = min(ASASSN_mag_V)
-            maxmag_V = max(ASASSN_mag_V)
-        except:
-            maxmag_g = 20
-            minmag_g = 10
-            minmag_V = 10
-            maxmag_V = 20
-        maxmag = max(maxmag_V, maxmag_g)
-        minmag = min(minmag_V, minmag_g)
-        try:    
-            plt.ylim(maxmag, minmag)
-        except:
-            plt.ylim(20, 10)
-        plt.xlabel('JD')
-        plt.ylabel("V Magnitude")
-        plt.title('ASASSN LC')
-        plt.legend()
+            ASASSN_output_g = readASASSN(
+                    '../ASASSNphot_2/'+asassn_name+'_g.dat')
+            ASASSN_JD_g = ASASSN_output_g[0]
+            ASASSN_mag_g = ASASSN_output_g[1]
+            ASASSN_mag_err_g = ASASSN_output_g[2]
 
-        plt.subplot2grid((2,2), (1,1), colspan=1, rowspan=1)
-        
-        if len(ASASSN_JD_V) > 5:
-            #Select the largest time group
-            breaksASASSN_V = []
-            for i in range(len(ASASSN_JD_V)):
-                if i != 0:
-                    if (ASASSN_JD_V[i] - ASASSN_JD_V[i-1]) >= 100:
-                        breaksASASSN_V.append(i)
+            plt.errorbar(ASASSN_JD_V, ASASSN_mag_V, 
+                         yerr=ASASSN_mag_err_V, color='blue', 
+                         ls='-', label='V band', ecolor='gray')
+            plt.errorbar(ASASSN_JD_g, ASASSN_mag_g, 
+                         yerr=ASASSN_mag_err_g, color='green', 
+                         ls='-', label='g band', ecolor='gray')
+            #Having some issues here, set default ranges if there is a problem
+            try:
+                maxmag_g = max(ASASSN_mag_g)
+                minmag_g = min(ASASSN_mag_g)
+                minmag_V = min(ASASSN_mag_V)
+                maxmag_V = max(ASASSN_mag_V)
+            except:
+                maxmag_g = 20
+                minmag_g = 10
+                minmag_V = 10
+                maxmag_V = 20
+            maxmag = max(maxmag_V, maxmag_g)
+            minmag = min(minmag_V, minmag_g)
+            try:    
+                plt.ylim(maxmag, minmag)
+            except:
+                plt.ylim(20, 10)
+            plt.xlabel('JD')
+            plt.ylabel("V Magnitude")
+            plt.title('ASASSN LC')
+            plt.legend()
+
+            plt.subplot2grid((2,2), (1,1), colspan=1, rowspan=1)
             
-            Vgroups_JD = []
-            Vgroups_mag = []
-            Vgroups_mag_err = []
-            for i in range(len(breaksASASSN_V)):
-                if i == 0:
-                    Vgroups_JD.append(ASASSN_JD_V[:breaksASASSN_V[i]])
-                    Vgroups_mag.append(ASASSN_mag_V[:breaksASASSN_V[i]])
-                    Vgroups_mag_err.append(ASASSN_mag_err_V[:breaksASASSN_V[i]])
-                elif i == len(breaksASASSN_V) -1:
-                    Vgroups_JD.append(ASASSN_JD_V[breaksASASSN_V[i]:])
-                    Vgroups_mag.append(ASASSN_mag_V[breaksASASSN_V[i]:])
-                    Vgroups_mag_err.append(ASASSN_mag_err_V[breaksASASSN_V[i]:])
-                else:
-                    Vgroups_JD.append(ASASSN_JD_V[breaksASASSN_V[i-1]:breaksASASSN_V[i]])
-                    Vgroups_mag.append(ASASSN_mag_V[breaksASASSN_V[i-1]:breaksASASSN_V[i]])
-                    Vgroups_mag_err.append(ASASSN_mag_err_V[breaksASASSN_V[i-1]:breaksASASSN_V[i]])
+            if len(ASASSN_JD_V) > 5:
+                #Select the largest time group
+                breaksASN_V = []
+                for i in range(len(ASASSN_JD_V)):
+                    if i != 0:
+                        if (ASASSN_JD_V[i] - ASASSN_JD_V[i-1]) >= 100:
+                            breaksASN_V.append(i)
+                
+                Vgroups_JD = []
+                Vgroups_mag = []
+                Vgroups_mag_err = []
+                for i in range(len(breaksASASSN_V)):
+                    if i == 0:
+                        Vgroups_JD.append(ASASSN_JD_V[:breaksASN_V[i]])
+                        Vgroups_mag.append(ASASSN_mag_V[:breaksASN_V[i]])
+                        Vgroups_mag_err.append(
+                                ASASSN_mag_err_V[:breaksASN_V[i]])
+                    elif i == len(breaksASASSN_V) -1:
+                        Vgroups_JD.append(ASASSN_JD_V[breaksASN_V[i]:])
+                        Vgroups_mag.append(ASASSN_mag_V[breaksASN_V[i]:])
+                        Vgroups_mag_err.append(
+                                ASASSN_mag_err_V[breaksASN_V[i]:])
+                    else:
+                        Vgroups_JD.append(
+                                ASASSN_JD_V[breaksASN_V[i-1]:breaksASN_V[i]])
+                        Vgroups_mag.append(
+                                ASASSN_mag_V[breaksASN_V[i-1]:breaksASN_V[i]])
+                        Vgroups_mag_err.append(
+                                ASASSN_mag_err_V[breaksASN_V[i-1]:breaksASN_V[i]])
 
-            length_V_list = [ len(l) for l in Vgroups_JD ]
-            idx_Vlongest = np.where(np.array(length_V_list) == max(length_V_list))[0][0]
-            ASASSN_pgramV_JD = Vgroups_JD[idx_Vlongest]
-            ASASSN_pgramV_mag = Vgroups_mag[idx_Vlongest]
-            ASASSN_pgramV_err = Vgroups_mag_err[idx_Vlongest]
+                length_V_list = [ len(l) for l in Vgroups_JD ]
+                idx_Vlongest = np.where(np.array(length_V_list) 
+                                        == max(length_V_list))[0][0]
+                ASASSN_pgramV_JD = Vgroups_JD[idx_Vlongest]
+                ASASSN_pgramV_mag = Vgroups_mag[idx_Vlongest]
+                ASASSN_pgramV_err = Vgroups_mag_err[idx_Vlongest]
 
-            #Generate LS periodogram
-            lsV = LombScargle(ASASSN_pgramV_JD, ASASSN_pgramV_mag, dy=ASASSN_pgramV_err)
-            freqV, ampV = lsV.autopower(nyquist_factor=1)
-            plt.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
-            plt.xlim(xmax=(1/30))
-            plt.axhline(y=lsV.false_alarm_level(.1), color='blue', alpha=.5, ls='--', label='.1 fal')
-        if len(ASASSN_JD_g) > 5:
-            lsg = LombScargle(ASASSN_JD_g, ASASSN_mag_g, dy=ASASSN_mag_err_g)
-            freqg, ampg = lsg.autopower(nyquist_factor=1)
-            plt.plot(freqg, ampg, color='green', label='g mag', zorder=1)
-            plt.xlim(xmax=(1/30))
-            plt.axhline(y=lsg.false_alarm_level(.1), color='green', alpha=.5, ls='--', label='.1 fal')
-    
-        plt.xlabel('Frequency [Hz]')
-        plt.ylabel('Amplitude')
-        plt.title('Periodogram for ASASSN Data')
-        plt.legend(loc=1)
-
+                #Generate LS periodogram
+                lsV = LombScargle(ASASSN_pgramV_JD, 
+                                  ASASSN_pgramV_mag, 
+                                  dy=ASASSN_pgramV_err)
+                freqV, ampV = lsV.autopower(nyquist_factor=1)
+                plt.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
+                plt.xlim(xmax=(1/30))
+                plt.axhline(y=lsV.false_alarm_level(.1), 
+                            color='blue', alpha=.5, 
+                            ls='--', label='.1 fal')
+            if len(ASASSN_JD_g) > 5:
+                lsg = LombScargle(ASASSN_JD_g, 
+                                  ASASSN_mag_g, dy=ASASSN_mag_err_g)
+                freqg, ampg = lsg.autopower(nyquist_factor=1)
+                plt.plot(freqg, ampg, color='green', label='g mag', zorder=1)
+                plt.xlim(xmax=(1/30))
+                plt.axhline(y=lsg.false_alarm_level(.1), 
+                            color='green', alpha=.5, ls='--', label='.1 fal')
         
-    else:
-        figall, axall = plt.subplots(1,1,figsize=(16,12))
-        figall.tight_layout(rect=[0, 0.03, 1, 0.95])
-        #Plot total light curve
-        axall.errorbar(biglc_jd_time, biglc_counts, yerr=biglc_err, color=bandcolors[band], marker='.', ls='-',  zorder=3, ms=15, label=band)
-        axall.errorbar(alldata_jd_tmean, alldata_flux_bgsub, yerr=alldata_flux_bgsub_err, color='black', marker='.', zorder=2, ls='', alpha=.125)
-        #Plot data in other band
-        if other_band_exists:
-            print("Plotting additional LC data for " + band_other + " band")
-            axall.errorbar(alldata_jd_tmean_other, alldata_flux_bgsub_other, yerr=alldata_flux_bgsub_err_other, color=bandcolors[band_other], marker='.', ls='', zorder=1, alpha=.25, label=band_other)
-        axall.set_xlabel('Time [s]')
-        axall.set_ylabel('Flux MMI')
-        axall.legend()
+            plt.xlabel('Frequency [Hz]')
+            plt.ylabel('Amplitude')
+            plt.title('Periodogram for ASASSN Data')
+            plt.legend(loc=1)
 
-    #Supertitle
-    figall.suptitle("Combined Light Curve for {0} in {1} \nBest rank {2} in exposure group {3} \nTotal rank {4} in {5} exposure groups".format(source, band, str(round(bestrank,2)), str(best_expt_group), str(round(totalrank, 2)), str(len(data)))
-                    )
+            
+        else:
+            figall, axall = plt.subplots(1,1,figsize=(16,12))
+            figall.tight_layout(rect=[0, 0.03, 1, 0.95])
+            #Plot total light curve
+            axall.errorbar(biglc_jd_time, biglc_counts, 
+                           yerr=biglc_err, color=bandcolors[band], 
+                           marker='.', ls='-',  zorder=3, ms=15, label=band)
+            axall.errorbar(alldata_jd_tmean, alldata_flux_bgsub, 
+                           yerr=alldata_flux_bgsub_err, color='black', 
+                           marker='.', zorder=2, ls='', alpha=.125)
+            #Plot data in other band
+            if other_band_exists:
+                print("Plotting additional LC data for " 
+                      + band_other + " band")
+                axall.errorbar(alldata_jd_tmean_other, 
+                               alldata_flux_bgsub_other, 
+                               yerr=alldata_flux_bgsub_err_other, 
+                               color=bandcolors[band_other], marker='.', 
+                               ls='', zorder=1, alpha=.25, label=band_other)
+            axall.set_xlabel('Time [s]')
+            axall.set_ylabel('Flux MMI')
+            axall.legend()
 
-    all1saveimagepath = str("PDFs/"+source+"-"+band+"all1"+".pdf")
-    figall.savefig(all1saveimagepath)
-    #Clear figure
-    figall.clf()
-    plt.close('all')
+        #Supertitle
+        figall.suptitle("Combined Light Curve for {0} in {1} "
+                        +"\nBest rank {2} in exposure group {3} "
+                        +"\nTotal rank {4} in {5} exposure groups".format(
+                            source, 
+                            band, 
+                            str(round(bestrank,2)), 
+                            str(best_expt_group), 
+                            str(round(totalrank, 2)), 
+                            str(len(data)))
+                        )
 
-    ###Page 2### Magnitude sigma plot and Source information
-    #Get info from sigmamag csv file (from WDsigmamag)
-    figall2, axall2 = plt.subplots(2,1,figsize=(16,12))
-    figall2.tight_layout(rect=[0, 0.03, 1, 0.95])
-    if band == 'NUV':
-        df_sigmamag = pd.read_csv(sigmamag_path_NUV)
-    else:
-        assert(band == 'FUV')
-        df_sigmamag = pd.read_csv(sigmamag_path_FUV)
-    #Pull values, weights
-    allmags = df_sigmamag['m_ab']
-    allsigma = df_sigmamag['sigma_m']
-    df_alphas = df_sigmamag['weight']
-    rgb_1 = np.zeros((len(df_alphas),4))
-    rgb_1[:,3] = df_alphas
-    #Create magnitude bins using np.digitize
-    axall2[0].scatter(allmags,allsigma,color=rgb_1, zorder=1, s=5)
+        all1saveimagepath = str("PDFs/"+source+"-"+band+"all1"+".pdf")
+        figall.savefig(all1saveimagepath)
+        #Clear figure
+        figall.clf()
+        plt.close('all')
 
-    #Get information from magdic
-    sourcemags = np.array(magdic['mag'])
-    sourcesigmas =np.array(magdic['sigma'])
-    sourcealphas = np.array(magdic['weight'])
-    #Make lists for arrow points (above .3 sigma)
-    arrow_mag = []
-    arrow_sigma = []
-    arrow_alpha = []
-    idx_arrow = np.where(sourcesigmas > .3)[0]
-    for idx in idx_arrow:
-        arrow_mag.append(sourcemags[idx])
-        arrow_sigma.append(.29)
-        arrow_alpha.append(sourcealphas[idx])
+        ###Page 2### Magnitude sigma plot and Source information
+        #Get info from sigmamag csv file (from WDsigmamag)
+        figall2, axall2 = plt.subplots(2,1,figsize=(16,12))
+        figall2.tight_layout(rect=[0, 0.03, 1, 0.95])
+        if band == 'NUV':
+            df_sigmamag = pd.read_csv(sigmamag_path_NUV)
+        else:
+            assert(band == 'FUV')
+            df_sigmamag = pd.read_csv(sigmamag_path_FUV)
+        #Pull values, weights
+        allmags = df_sigmamag['m_ab']
+        allsigma = df_sigmamag['sigma_m']
+        df_alphas = df_sigmamag['weight']
+        rgb_1 = np.zeros((len(df_alphas),4))
+        rgb_1[:,3] = df_alphas
+        #Create magnitude bins using np.digitize
+        axall2[0].scatter(allmags,allsigma,color=rgb_1, zorder=1, s=5)
 
-    #Drop these indicies from the source arrays
-    sourcemags = np.delete(sourcemags, idx_arrow)
-    sourcesigmas = np.delete(sourcesigmas, idx_arrow)
-    sourcealphas = np.delete(sourcealphas, idx_arrow)
+        #Get information from magdic
+        sourcemags = np.array(magdic['mag'])
+        sourcesigmas =np.array(magdic['sigma'])
+        sourcealphas = np.array(magdic['weight'])
+        #Make lists for arrow points (above .3 sigma)
+        arrow_mag = []
+        arrow_sigma = []
+        arrow_alpha = []
+        idx_arrow = np.where(sourcesigmas > .3)[0]
+        for idx in idx_arrow:
+            arrow_mag.append(sourcemags[idx])
+            arrow_sigma.append(.29)
+            arrow_alpha.append(sourcealphas[idx])
 
-    #Make color code information
-    rgb_2 = np.zeros((len(sourcealphas), 4))
-    rgb_2[:,0] = 1.0
-    rgb_2[:,3] = sourcealphas
-    
-    #Make color code information for arrow
-    rgb_arrow = np.zeros((len(arrow_alpha),4))
-    rgb_arrow[:,0] = .3
-    rgb_arrow[:,1] = .7
-    rgb_arrow[:,2] = 1.0
-    rgb_arrow[:,3] = arrow_alpha
+        #Drop these indicies from the source arrays
+        sourcemags = np.delete(sourcemags, idx_arrow)
+        sourcesigmas = np.delete(sourcesigmas, idx_arrow)
+        sourcealphas = np.delete(sourcealphas, idx_arrow)
+
+        #Make color code information
+        rgb_2 = np.zeros((len(sourcealphas), 4))
+        rgb_2[:,0] = 1.0
+        rgb_2[:,3] = sourcealphas
+        
+        #Make color code information for arrow
+        rgb_arrow = np.zeros((len(arrow_alpha),4))
+        rgb_arrow[:,0] = .3
+        rgb_arrow[:,1] = .7
+        rgb_arrow[:,2] = 1.0
+        rgb_arrow[:,3] = arrow_alpha
 
 
-    axall2[0].scatter(sourcemags, sourcesigmas, color=rgb_2, zorder=2)
-    axall2[0].scatter(arrow_mag, arrow_sigma, color=rgb_arrow, marker="^", zorder=3)
-    axall2[0].set_title("Sigma as a function of AB mag")
-    axall2[0].set_xlabel("AB mag")
-    axall2[0].set_ylabel("Sigma")
-    axall2[0].set_ylim(ymin=0)
-    axall2[0].set_ylim(ymax=.3)
-    axall2[0].set_xlim(xmin=13)
-    axall2[0].set_xlim(xmax=23)
+        axall2[0].scatter(sourcemags, sourcesigmas, color=rgb_2, zorder=2)
+        axall2[0].scatter(arrow_mag, arrow_sigma, 
+                          color=rgb_arrow, marker="^", zorder=3)
+        axall2[0].set_title("Sigma as a function of AB mag")
+        axall2[0].set_xlabel("AB mag")
+        axall2[0].set_ylabel("Sigma")
+        axall2[0].set_ylim(ymin=0)
+        axall2[0].set_ylim(ymax=.3)
+        axall2[0].set_xlim(xmin=13)
+        axall2[0].set_xlim(xmax=23)
 
-    ###Information for text subplot
-    axall2[1].set_ylim(ymin=0, ymax=1)
-    information1 = """
-    Source name:         \n
-    Band:                \n
-    ABMagnitude:         \n
-    g Magitude:          \n
-    Spectral Type:       \n
-    SIMBAD Designation:  \n
-    SIMBAD Type list:    \n
-    Known Variability:   \n
-    Known Binarity:      \n
-    Has Disk:            \n
-    Strongest Period:    \n
-    """
-    information2 = """
-    {0} \n
-    {1} \n
-    {2} \n
-    {3} \n
-    {4} \n
-    {5} \n
-    {6} 
-    {7} \n
-    {8} \n
-    {9} \n
-    {10} \n
-    """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), 
-               spectype, simbad_name, simbad_types, variability, 
-               binarity, hasdisk, period_to_save
-        )
-    axall2[1].text(.2, 1, information1, size=15, ha='left', va='top')
-    axall2[1].text(.7, 1, information2, size=15, ha='right', va='top')
-    axall2[1].axis('off')
+        ###Information for text subplot
+        axall2[1].set_ylim(ymin=0, ymax=1)
+        information1 = """
+        Source name:         \n
+        Band:                \n
+        ABMagnitude:         \n
+        g Magitude:          \n
+        Spectral Type:       \n
+        SIMBAD Designation:  \n
+        SIMBAD Type list:    \n
+        Known Variability:   \n
+        Known Binarity:      \n
+        Has Disk:            \n
+        Strongest Period:    \n
+        """
+        information2 = """
+        {0} \n
+        {1} \n
+        {2} \n
+        {3} \n
+        {4} \n
+        {5} \n
+        {6} 
+        {7} \n
+        {8} \n
+        {9} \n
+        {10} \n
+        """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), 
+                   spectype, simbad_name, simbad_types, variability, 
+                   binarity, hasdisk, period_to_save
+            )
+        axall2[1].text(.2, 1, information1, size=15, ha='left', va='top')
+        axall2[1].text(.7, 1, information2, size=15, ha='right', va='top')
+        axall2[1].axis('off')
 
-    all2saveimagepath = str("PDFs/"+source+"-"+band+"all2"+".pdf")
-    figall2.savefig(all2saveimagepath)
+        all2saveimagepath = str("PDFs/"+source+"-"+band+"all2"+".pdf")
+        figall2.savefig(all2saveimagepath)
 
-    #Clear figure
-    figall.clf()
-    plt.close('all')
+        #Clear figure
+        figall.clf()
+        plt.close('all')
 
-    #Generate PDF
-    subprocess.run(['PDFcreator', '-s', source, '-b', band])
+        #Generate PDF
+        subprocess.run(['PDFcreator', '-s', source, '-b', band])
+
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument("--csvname", help= "Input full csv file", required=True, type=str)
-    parser.add_argument("--fap", help = "False alarm probability theshold for periodogram", default=.05, type=float)
-    parser.add_argument("--prange", help = "Frequency range for identifying regions in periodogram due to expt and detrad", default=.0005, type=float)
-    parser.add_argument("--w_pgram", help = "Weight for periodogram", default = 1, type=float)
-    parser.add_argument("--w_expt", help= "Weight for exposure time", default = .20, type=float)
-    parser.add_argument("--w_WS", help="Weight for Welch Stetson variability metric", default = .25, type=float)
-    parser.add_argument("--w_mag", help= "Weight for magnitude", default=0, type=float)
-    parser.add_argument("--w_known", help="Weight for if known binarity, variability, disk, Z spec type", default=.5, type=float)
-    parser.add_argument("--w_flag", help="Weight for flagged ratio", default=.5, type=float)
-    parser.add_argument("--w_magfit", help="Weight for magfit ratio", default=.30, type=float)
-    parser.add_argument("--comment", help="Add comments/interactive mode", default=False, action='store_true')
+    parser.add_argument(
+            "--csvname", 
+            help= "Input full csv file", 
+            required=True, type=str)
+    parser.add_argument(
+            "--comment", 
+            help="Add comments/interactive mode", 
+            default=False, action='store_true')
     args= parser.parse_args()
 
-    main(csvname=args.csvname, fap=args.fap, prange=args.prange, 
-         w_pgram=args.w_pgram, w_expt=args.w_expt, w_WS=args.w_WS,
-         w_mag=args.w_mag, w_known=args.w_known, w_flag=args.w_flag, 
-         w_magfit=args.w_magfit, comment=args.comment)
+    main(csvname=args.csvname,
+         comment=args.comment,
+         makeplot=True)
