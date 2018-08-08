@@ -7,7 +7,7 @@ import argparse
 import pandas as pd
 import matplotlib.gridspec as gs
 from gPhoton import gphoton_utils
-from WDranker_2 import badflag_bool, catalog_match
+import WDutils
 from matplotlib.patheffects import withStroke
 import _pickle as pickle
 from scipy import optimize
@@ -393,7 +393,7 @@ def ExcessTower():
             sed_list.append(sed)
 
     figT = plt.figure(figsize=(12,6))
-    gsT = gs.GridSpec(4,2)
+    gsT = gs.GridSpec(3,1)
     gsT.update(hspace=0, wspace=.15)
     plt.subplots_adjust(top=.98, right=.98)
     figT.text(.02, .5, 'Flux ('+r'erg/s/cm$^2$/Å)', 
@@ -407,16 +407,21 @@ def ExcessTower():
     afont = {'fontname':'Keraleeyam'}
 
     coords = []
-    for y in range(0, 4):
+    for y in range(0, 3):
         coords.append( (y,0) )
-        coords.append( (y,1) )
+        #coords.append( (y,1) )
+    print(coords)
     idx_plot = 0
     for sed in sed_list:
         if idx_plot == len(sed_list) + 1:
             break
         plot_coords = coords[idx_plot]
-        plt.subplot2grid((4,2), plot_coords, colspan=1, rowspan=1)
+        plt.subplot2grid((3,1), plot_coords, colspan=1, rowspan=1)
         axT = plt.subplot(gsT[plot_coords])
+        #print("-----")
+        #print(sed.labelnum)
+        #print(sed.df_all)
+        #print("-----")
         #Plot SED
         axT.errorbar(sed.df_nonIR['wavelength'], 
                     (sed.df_nonIR['flux'] / sed.mf), 
@@ -474,6 +479,13 @@ def ExcessTower():
         axT.set_ylim(ymin=10**(round(np.log10(minf), 2)-.75),
                     ymax=10**(round(np.log10(maxf), 2)+.75))
 
+        #Set xaxis
+        if sed.df_wise['uplim'][2] == 1:
+            axT.set_xlim(xmin=-100,
+                         xmax = 1.2*sed.df_wise['wavelength'][1])
+        else:
+            axT.set_xlim(xmin=-100,
+                         xmax = 1.2*sed.df_wise['wavelength'][2])
 
         for axis in ['top', 'bottom', 'left', 'right']:
             axT.spines[axis].set_linewidth(1.5)
@@ -582,12 +594,12 @@ def ExcessLatex():
     df_output = {'MainID':[],
                  'ID':[],
                  'Wise 1':[],
-                 'Wise 2':[],
-                 'W1-W2':[],
-                 'Wise 3':[],
                  'Wise 1 Excess':[],
+                 'Wise 2':[],
                  'Wise 2 Excess':[],
+                 'Wise 3':[],
                  'Wise 3 Excess':[],
+                 'W1-W2':[],
             }
     for i in range(len(df_comments['MainID'])):
         if df_comments['Excess'][i] == 1:
@@ -630,27 +642,41 @@ def ExcessLatex():
         lines = f.readlines()
         f.close()
 
-    lines.insert(3, " & & (mag) & (mag) & (mag) & (mag) & & &\\\ \n")
-    df_output = {'MainID':[],
-                 'ID':[],
-                 'Wise 1':[],
-                 'Wise 2':[],
-                 'W1-W2':[],
-                 'Wise 3':[],
-                 'Wise 1 Excess':[],
-                 'Wise 2 Excess':[],
-                 'Wise 3 Excess':[],
-            }
-
+    lines.insert(3, " & & (mag) & & (mag) & & (mag) & & (mag) \\\ \n")
     with open('ExcessLatex.tex', 'w') as f:
         contents = "".join(lines)
         f.write(contents)
         f.close()
 
+def PSfits():
+    assert(os.path.isdir("PSfits"))
+    assert(os.path.isfile("IS.csv"))
+    df = pd.read_csv("IS.csv")
+    for filename in os.listdir("PSfits"):
+        if filename.endswith(".png"):
+            fig, ax = plt.subplots(1,1, figsize=(12,12))
+            sourcename = filename[:-4]
+            idx_IS = np.where(df['MainID'] == sourcename)[0]
+            assert(len(idx_IS) == 1)
+            idx_IS = idx_IS[0]
+            labelnum = df['labelnum'][idx_IS]
+            ax.imshow(mpimg.imread("PSfits/"+filename))
+            myeffectw = withStroke(foreground='black', linewidth=2)
+            txtkwargsw = dict(path_effects=[myeffectw])
+            afont = {'fontname':'Keraleeyam'}
+            ax.annotate(str(labelnum), xy=(.95, .85), 
+                         xycoords='axes fraction', color='xkcd:red', 
+                         fontsize=20, ha='center', va='center', 
+                         **afont, **txtkwargsw)
+            ax.axis('off')
+
+            fig.savefig('PSfits/labeled/'+sourcename+".png")
+
 def main():
-    #ExcessTower()
+    ExcessTower()
     #WISEdoublefig()
     ExcessLatex()
+    #PSfits()
 
 
 if __name__ == '__main__':
