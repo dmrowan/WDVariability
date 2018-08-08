@@ -12,6 +12,8 @@ import matplotlib.gridspec as gs
 import subprocess
 from gPhoton import gphoton_utils
 import math
+import WDutils 
+import collections
 #Dom Rowan REU 2018
 
 
@@ -20,109 +22,230 @@ WDranker_2.py: produces the ranked value c for a single source dependent on
 exposure, periodicity, autocorrelation, and other statistical measures
 """
 
-#function to read in asassn data - even weird tables 
-def readASASSN(path):
-    jd_list = []
-    mag_list = []
-    mag_err_list = []
-    with open(path) as f:
-        for line in f:
-            if line[0].isdigit():
-                datlist = line.rstrip().split()
-                jd_list.append(datlist[0])
-                mag_list.append(datlist[7])
-                mag_err_list.append(datlist[8])
+def find_cRMS(m_ab, sigma_mag, band):
+    #Path assertions
+    sigmamag_percentile_path_NUV = "Catalog/magpercentiles_NUV.csv"
+    sigmamag_percentile_path_FUV = "Catalog/magpercentiles_FUV.csv"
+    assert(os.path.isfile(sigmamag_percentile_path_NUV))
+    assert(os.path.isfile(sigmamag_percentile_path_FUV))
+    #Read in mag percentile information
+    if band == 'NUV':
+        percentile_df = pd.read_csv(sigmamag_percentile_path_NUV)
+    else:
+        assert(band == 'FUV')
+        percentile_df = pd.read_csv(sigmamag_percentile_path_FUV)
 
-    i=0
-    while i < len(mag_err_list):
-        if float(mag_err_list[i]) > 10:
-            del jd_list[i]
-            del mag_list[i]
-            del mag_err_list[i]
+    magbins = percentile_df['magbin']
+    magbins = np.array(magbins)
+    percentile50 = percentile_df['median']
+    lowerbound = percentile_df['lower']
+    upperbound = percentile_df['upper']
+    if m_ab < 20.75:
+        sigmamag_idx = np.where(
+                abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
+        sigmafit_val = float(percentile50[sigmamag_idx])
+        sigmafit_val_upper = float(upperbound[sigmamag_idx])
+        if ((sigma_mag > sigmafit_val) 
+                and (sigma_mag < sigmafit_val_upper)):
+            c_magfit = sigma_mag/ sigmafit_val
+        elif sigma_mag>= sigmafit_val_upper:
+            c_magfit = sigmafit_val_upper / sigmafit_val
         else:
-            i += 1
+            c_magfit = 0
+    else:
+        c_magfit = 0
 
-    jd_list = [ float(element) for element in jd_list ] 
-    mag_list = [ float(element) for element in mag_list ]
-    mag_err_list = [ float(element) for element in mag_err_list ]
+    return c_magfit
 
-    return [jd_list, mag_list, mag_err_list]
+def find_cEXP(df):
+    #Get raw exposure value
+    lasttime = list(df['t1'])[-1]
+    firsttime = list(df['t0'])[0]
+    exposure = lasttime - firsttime
 
-#Convert the flag value into a binary string and see if we have a bad flag
-def badflag_bool(x):
-    bvals = [512,256,128,64,32,16,8,4,2,1]
-    val = x
-    output_string = ''
-    for i in range(len(bvals)):
-        if val >= bvals[i]:
-            output_string += '1'
-            val = val - bvals[i]
-        else:
-            output_string += '0'
+    coloredtup = WDutils.ColoredPoints(df)
+    redpoints = coloredtup.redpoints
+    bluepoints = coloredtup.bluepoints
+    droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
+
+    #Exposure metric in ks
+    c_exposure = (exposure) / 1000
+    #Correction for flagged time
+    t_flagged = (len(droppoints) * 15) / 1000 
+    c_exposure = c_exposure - t_flagged
     
-    badflag_vals = (output_string[0]  
-            + output_string[4]  
-            + output_string[7]  
-            + output_string[8])
+    OutputTup = collections.namedtuple('OutputTup', ['firsttime',
+                                                     'lasttime',
+                                                     'exposure',
+                                                     'c_exposure',
+                                                     't_flagged'])
+    tup = OutputTup(firsttime, lasttime, exposure, c_exposure, t_flagged)
+    return tup
 
-    for char in badflag_vals:
-        if char == '1':
-            return True
-            break
-        else:
+def find_cPGRAM(ls, amp_detrad, exposure=1800):
+    freq, amp = ls.autopower(nyquist_factor=1)
+    #Identify statistically significant peaks
+    top5amp = heapq.nlargest(5, amp)
+    #top5amp_expt = heapq.nlargest(5, amp_expt)
+    top5amp_detrad = heapq.nlargest(5, amp_detrad)
+    #Find bad peaks
+    bad_detrad = []
+    for a in top5amp_detrad:
+        if a == float('inf'):
             continue
-    return False
+        idx = np.where(amp_detrad == a)[0]
+        f = freq[idx]
+        lowerbound = f - .0005
+        upperbound = f + .0005
+        bad_detrad.append( (lowerbound, upperbound) )
+        
+    #Calculate false alarm thresholds
+    fap = .05
+    probabilities = [fap]
+    faplevels = ls.false_alarm_level(probabilities)
 
-def catalog_match(source, bigcatalog):
+    ditherfapval = .25
+    ditherfaplevel = ls.false_alarm_level(ditherfapval)
+    ditherperiod_exists=False
+    sspeaks = [] #freq,amp,fap tuples
+    for a in top5amp:
+        #False alarm probability threshold
+        fapval = ls.false_alarm_probability(a)
+        if fapval <= fap:
+            ratio = a / ls.false_alarm_level(fap)
+            idx = np.where(amp==a)[0]
+            f = freq[idx]
+            #Now check if it is in any of the bad ranges
+            hits = 0
+            for tup in bad_detrad:
+                if ( f > tup[0] ) and ( f < tup[1] ):
+                    hits+=1
+                    ditherperiod_exists = True
+            #If hits is still 0, the peak isnt in any of the bad ranges
+            if hits == 0:
+                sspeaks.append( (f, a, fapval, ratio) ) 
+        elif (fapval > fap) and (fapval <= ditherfapval):
+            idx = np.where(amp==a)[0]
+            f = freq[idx]
+            for tup in bad_detrad:
+                if (f > tup[0]) and ( f < tup[1] ):
+                    ditherperiod_exists=True
 
-    nhyphens = len(np.where(np.array(list(source)) == '-')[0])
-    if ( (source[0:4] == 'Gaia') or
-            (source[0:2] in ['GJ', 'CL', 'V*', 'PN']) or
-            (source[0:3] in ['Ton', 'CL*', 'Cl*', 'RRS', 'MAS']) or
-            (source[0:5] in ['LAWDS']) or
-            ('GMS97' in source) or
-            ('FOCAP' in source) or
-            ('KAB' in source) or
-            ('NCA' in source)):
-            bigcatalog_idx = np.where(bigcatalog['MainID'] 
-                                      == source.replace('-', ' '))[0]
-    elif source[0:5] == 'ATLAS':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-    elif source[0:2] == 'LP':
-        if nhyphens == 2:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] 
-                                      == source.replace('-', ' ', 1))[0]
-        elif nhyphens == 3:
-            source_r = source.replace('-', ' ', 1)[::-1]
-            source_r = source_r.replace('-', ' ',1)[::-1]
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source_r)[0]
-        else:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] == source)[0]
-    elif source[0:3] == '2QZ':
-        bigcatalog_idx = np.where(bigcatalog['MainID'] 
-                                  == source.replace('-', ' ', 1))[0]
-    elif source[0:2] == 'BD':
-        if nhyphens == 2:
-            bigcatalog_idx = np.where(bigcatalog['MainID'] 
-                    == source[::-1].replace('-', ' ', 1)[::-1])[0]
-        else:
-            bigcatalog_idx = np.where(
-                    bigcatalog['MainID'] == source.replace('-', ' '))[0]
-    else:   #SDSS sources go in here
-        if nhyphens == 1:
-            bigcatalog_idx = np.where(
-                    bigcatalog['MainID'] == source.replace('-', ' ' ))[0]
-        else:
-            bigcatalog_idx = np.where(
-                    bigcatalog['MainID'] == 
-                    source.replace('-', ' ',nhyphens-1))[0]
+    #This is a crude way to ensure we don't get any dither harmonics
+    if ditherperiod_exists:
+        sspeaks = []
+    #Grab the info to show the strongest peak for the source
+    if len(sspeaks) != 0:
+        sspeaks_amp = [ peak[1] for peak in sspeaks ] 
+        sspeaks_freq = [ peak[0] for peak in sspeaks ]
+        sspeaks_fap = [ peak[2] for peak in sspeaks ] 
+        sspeaks_ratio = [ peak[3] for peak in sspeaks ]
+        strongest_freq = (
+                sspeaks_freq[np.where(np.asarray(sspeaks_amp) 
+                == max(sspeaks_amp))[0][0]])
+        strongest_period_ratio = (
+                sspeaks_ratio[np.where(np.asarray(sspeaks_amp)
+                ==max(sspeaks_amp))[0][0]])
+        strongest_period_fap = (
+                sspeaks_fap[np.where(np.asarray(sspeaks_amp)
+                ==max(sspeaks_amp))[0][0]])
+        strongest_period = 1.0 / strongest_freq
+        strongest_period_tup = (strongest_period[0], 
+                                strongest_period_ratio, 
+                                strongest_period_fap)
+    else:
+        strongest_period_tup = (-1,-1)
 
-    return(bigcatalog_idx)
+    c_periodogram = 0
+    for peak in sspeaks:
+        if (peak[0] < (1/ (exposure))) or (peak[0] > (1/25)):
+                c_periodogram += peak[3] * .125
+        else:
+            c_periodogram += peak[3]
+
+    OutputTup = collections.namedtuple('OutputTup', ['c', 
+                                                     'ditherperiod_exists',
+                                                     'strongest_period_tup',
+                                                     'sspeaks',
+                                                     'bad_detrad',
+                                                     ])
+    tup = OutputTup(c_periodogram, ditherperiod_exists, 
+                    strongest_period_tup, sspeaks, bad_detrad)
+    return tup
+
+#Calculate Welch Stetson Variability Metric.
+def find_cWS(t_mean, t_mean_other, 
+            flux_bgsub, flux_bgsub_other,
+            flux_bgsub_err, flux_bgsub_err_other,
+            ditherperiod_exists,
+            other_band_exists):
+
+    ws_times = [] 
+    ws_flux = [] 
+    ws_flux_err = [] 
+    ii_previous = 0     #Index to reduce number of iterations 
+    for i in range(len(t_mean)):
+        t = t_mean[i]
+        f = flux_bgsub[i]
+        ferr = flux_bgsub_err[i]
+        matchfound = False
+        if other_band_exists:
+            for ii in range(ii_previous, len(t_mean_other)): 
+                tother = t_mean_other[ii]
+                fother = flux_bgsub_other[ii]
+                ferrother = flux_bgsub_err_other[ii]
+                if abs(t-tother) < 1.5:
+                    matchfound = True
+                    ws_times.append( (t, tother) )
+                    ws_flux.append( (f, fother) )
+                    ws_flux_err.append( (ferr, ferrother) )
+                    ii_previous = ii
+                    break
+        if matchfound == False:
+            ws_times.append( (t, None) )
+            ws_flux.append( (f, None) )
+            ws_flux_err.append( (ferr, None) )
+
+    assert(len(ws_times) 
+           == len(ws_flux) 
+           == len(ws_flux_err) 
+           == len(t_mean))
+    ws_sum = 0
+    for i in range(len(ws_flux)):
+        fluxtup = ws_flux[i]
+        errtup = ws_flux_err[i]
+        if math.isnan(errtup[0]):
+            deltaband=0
+        else:
+            deltaband = ((fluxtup[0] - np.nanmean(flux_bgsub)) 
+                          / errtup[0])
+        if fluxtup[1] is None:
+            deltaother = 1
+        else:
+            assert(other_band_exists)
+            if len(flux_bgsub_other) == 0:
+                deltaother = 1
+            else:
+                if str(errtup[1]) == str(float('NaN')):
+                    deltraother = 1
+                else:
+                    deltaother = ((fluxtup[1] 
+                                   - np.nanmean(flux_bgsub_other)) 
+                                   / errtup[1])
+
+        ws_sum += deltaband*deltaother
+    
+    c_ws = np.sqrt(1/(len(ws_times)*(len(ws_times)-1))) * ws_sum
+
+    #Crude way of making dither not count
+    if ditherperiod_exists:
+        c_ws = 0
+
+    return c_ws
 
 #Main ranking function
 def main(csvname,
          makeplot,
-         fap=.05, prange=.0005, 
          w_pgram=1,
          w_expt=.2, 
          w_WS=.30, 
@@ -133,15 +256,11 @@ def main(csvname,
     catalogpath = ("/home/dmrowan/WhiteDwarfs/"
                   +"Catalogs/MainCatalog_reduced_simbad_asassn.csv")
     sigmamag_path_NUV = "Catalog/SigmaMag_NUV.csv"
-    sigmamag_percentile_path_NUV = "Catalog/magpercentiles_NUV.csv"
     sigmamag_path_FUV = "Catalog/SigmaMag_FUV.csv"
-    sigmamag_percentile_path_FUV = "Catalog/magpercentiles_FUV.csv"
     assert(os.path.isfile(csvname))
     assert(os.path.isfile(catalogpath))
     assert(os.path.isfile(sigmamag_path_NUV))
-    assert(os.path.isfile(sigmamag_percentile_path_NUV))
     assert(os.path.isfile(sigmamag_path_FUV))
-    assert(os.path.isfile(sigmamag_percentile_path_FUV))
     assert(os.path.isdir('PDFs'))
     assert(os.path.isdir('Output'))
 
@@ -169,84 +288,24 @@ def main(csvname,
     bandcolors = {'NUV':'red', 'FUV':'blue'}
     alldata = pd.read_csv(csvpath)
     ###Alldata table corrections###
-    #Drop rows with > 10e10 in cps, cps_err, cps < .5
-    idx_high_cps = np.where( (alldata['cps_bgsub'] > 10e10) |
-            (alldata['cps_bgsub_err'] > 10e10) | 
-            (alldata['counts'] < 1) | 
-            (alldata['counts'] > 100000) | 
-            (alldata['flux_bgsub'] < 0) | 
-            (alldata['cps_bgsub'] < -10000) )[0]
-    if len(idx_high_cps) != 0:
-        alldata = alldata.drop(index = idx_high_cps)
-        alldata = alldata.reset_index(drop=True)
+    alldata = WDutils.df_reduce(alldata)
 
     #Fix rows with incorrecct t_means by averaging t0 and t1
-    idx_tmean_fix = np.where( (alldata['t_mean'] < 1) | 
-            (alldata['t_mean'] > alldata['t1']) | 
-            (np.isnan(alldata['t_mean'])) )[0]
+    alldata = WDutils.tmean_correction(alldata)
 
-    for idx in idx_tmean_fix:
-        t0 = alldata['t0'][idx]
-        t1 = alldata['t1'][idx]
-        mean = (t1 + t0) / 2.0
-        alldata['t_mean'][idx] = mean
-
-    #Get information on flags
-    n_rows = alldata.shape[0]
-    n_flagged = 0
-    for i in range(len(alldata['flags'])):
-        if badflag_bool(alldata['flags'][i]):
-            n_flagged += 1
-
-    if float(n_rows) == 0:
-        allflaggedratio = float('NaN')
-    else:
-        allflaggedratio = float(n_flagged) / float(n_rows)
-
-    ###Apparent Magnitude### - could also be done using conversion from flux 
+    ###Apparent Magnitude### 
     m_ab = np.nanmedian(alldata['mag_bgsub'])
     sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1'] 
             + alldata['mag_bgsub_err_2'])/2.0 )
-    #Calculate c_mag based on ranges:
-    if m_ab > 13 and m_ab < 25:
-        c_mag = m_ab**(-1) * 10
-    else:
-        c_mag = 0
-
     magdic = {"mag":[m_ab], "sigma":[sigma_mag_all], "weight":[1]}
-
-    #Read in mag percentile information
-    if band == 'NUV':
-        percentile_df = pd.read_csv(sigmamag_percentile_path_NUV)
-    else:
-        assert(band == 'FUV')
-        percentile_df = pd.read_csv(sigmamag_percentile_path_FUV)
-
-    magbins = percentile_df['magbin']
-    magbins = np.array(magbins)
-    percentile50 = percentile_df['median']
-    lowerbound = percentile_df['lower']
-    upperbound = percentile_df['upper']
-    if m_ab < 20.75:
-        sigmamag_idx = np.where(
-                abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
-        sigmafit_val = float(percentile50[sigmamag_idx])
-        sigmafit_val_upper = float(upperbound[sigmamag_idx])
-        if ((sigma_mag_all > sigmafit_val) 
-                and (sigma_mag_all < sigmafit_val_upper)):
-            c_magfit = sigma_mag_all / sigmafit_val
-        elif sigma_mag_all >= sigmafit_val_upper:
-            c_magfit = sigmafit_val_upper / sigmafit_val
-        else:
-            c_magfit = 0
-    else:
-        c_magfit = 0
+    c_magfit = find_cRMS(m_ab, sigma_mag_all, band)
 
 
     ###See if we have any data in the other band###
-    csvpath_other = list(csvpath)
-    csvpath_other[-7] = band_other[0]
-    csvpath_other = "".join(csvpath_other)
+    if band == 'NUV':
+        csvpath_other = csvpath.replace('NUV', 'FUV')
+    else:
+        csvpath_other = csvpath.replace('FUV', 'NUV')
     #Look for file in GALEXphot/LCs
     csvpath_other = '/home/dmrowan/WhiteDwarfs/GALEXphot/LCs/'+csvpath_other
     if os.path.isfile(csvpath_other):
@@ -258,59 +317,19 @@ def main(csvname,
     if other_band_exists:
         #print("Generating additional LC data for " + band_other + " band")
         alldata_other = pd.read_csv(csvpath_other)
-        #Drop bad rows, flagged rows
-        idx_high_cps_other = np.where( (alldata_other['cps_bgsub'] > 10e10) 
-                | (alldata_other['cps_bgsub_err'] > 10e10) 
-                | (alldata_other['counts'] < 1) 
-                | (alldata_other['counts'] > 100000)
-                | (alldata_other['flux_bgsub'] < 0)
-                | (alldata_other['cps_bgsub'] < -10000) )[0]
-        idx_other_flagged_bool = [ badflag_bool(x) 
-                                   for x in alldata_other['flags'] ]
-        idx_other_flagged = np.where(
-                np.array(idx_other_flagged_bool) == True)[0]
-        idx_other_expt = np.where(alldata_other['exptime'] < 10)[0]
-        
-        idx_other_todrop = np.unique(np.concatenate([idx_high_cps_other, 
-                                                     idx_other_flagged, 
-                                                     idx_other_expt]))
-        alldata_other = alldata_other.drop(index=idx_other_todrop)
-        alldata_other = alldata_other.reset_index(drop=True)
-
-        stdev_other = np.std(alldata_other['flux_bgsub'])
-        if len(alldata_other['flux_bgsub']) != 0: 
-            if not alldata_other['flux_bgsub'].isnull().all():
-                idx_fivesigma_other = np.where( 
-                        abs((alldata_other['flux_bgsub'] 
-                            - np.nanmean(alldata_other['flux_bgsub']))) 
-                        > 5*stdev_other )[0]
-                alldata_other = alldata_other.drop(index=idx_fivesigma_other)
-                alldata_other = alldata_other.reset_index(drop=True)
-
+        alldata_other = WDutils.df_fullreduce(alldata_other)
         #Fix rows with weird t_mean time
-        idx_tmean_fix_other = np.where( (alldata_other['t_mean'] < 1) | 
-                (alldata_other['t_mean'] > alldata_other['t1']) | 
-                (np.isnan(alldata_other['t_mean'])) )[0]
-        for idx in idx_tmean_fix_other:
-            t0 = alldata_other['t0'][idx]
-            t1 = alldata_other['t1'][idx]
-            mean = (t1 + t0) / 2.0
-            alldata_other['t_mean'][idx] = mean
+        alldata_other = WDutils.tmean_correction(alldata_other)
 
         #Make correction for relative scales
-        alldata_tmean_other = alldata_other['t_mean']
-        alldata_flux_bgsub_other = alldata_other['flux_bgsub']
-        alldata_medianflux_other = np.median(alldata_flux_bgsub_other)
-        alldata_flux_bgsub_other = (
-                (alldata_flux_bgsub_other / 
-                    alldata_medianflux_other ) - 1.0) * 100
-        alldata_flux_bgsub_err_other = (
-                alldata_other['flux_bgsub_err'] 
-                / alldata_medianflux_other) * 100
+        relativetup_other = WDutils.relativescales(alldata_other)
+        alldata_tmean_other = relativetup_other.t_mean
+        alldata_flux_bgsub_other = relativetup_other.flux
+        alldata_flux_bgsub_err_other = relativetup_other.err
 
     ###Query Catalogs###
     bigcatalog = pd.read_csv(catalogpath)
-    bigcatalog_idx = catalog_match(source, bigcatalog)
+    bigcatalog_idx = WDutils.catalog_match(source, bigcatalog)
     if len(bigcatalog_idx) == 0:
         print(source, "Not in catalog")
         with open("../brokensources.txt", 'a') as f:
@@ -325,28 +344,11 @@ def main(csvname,
     hasdisk = bigcatalog['hasdisk'][bigcatalog_idx]
     simbad_name = bigcatalog['SimbadName'][bigcatalog_idx]
     simbad_types = bigcatalog['SimbadTypes'][bigcatalog_idx]
-    gmag = bigcatalog['sdss_g'][bigcatalog_idx]
-
-    #Known information changes rank:
-    if (str(binarity) != 'nan' 
-        or str(variability) != 'nan' or str(hasdisk) != 'nan'): 
-        c_known = 1
-    else:
-        c_known = 0
-
-    if str(spectype) != 'nan':
-        if any(spectype) == 'Z':
-            c_known += 1
+    gmag = bigcatalog['gaia_g_mean_mag'][bigcatalog_idx]
 
 
     ###Break the alldata table into exposure groups### 
-    breaks = []
-    for i in range(len(alldata['t0'])):
-        if i != 0:
-            if (alldata['t0'][i] - alldata['t0'][i-1]) >= 100:
-                breaks.append(i)
-
-    data = np.split(alldata, breaks)
+    data = WDutils.dfsplit(alldata, 100)
     print("Dividing {0} data for {1} into {2} exposure groups".format(
         band, source, str(len(data))))
 
@@ -361,69 +363,65 @@ def main(csvname,
     biglc_counts = []
     biglc_err = []
     strongest_periods_list = []
+    fap_list = []
     ditherperiod_exists = False
 
     ###Loop through each exposure group###
     for df in data:
-        #Find exposure time
-        #Hopefully won't need this when data is fixed
         if len(df['t1']) == 0:
             df_number += 1
             continue
-        lasttime = list(df['t1'])[-1]
-        firsttime = list(df['t0'])[0]
-        exposure = lasttime - firsttime
-        #Exposure metric in ks
-        c_exposure = (exposure) / 1000
-        c_exp_vals.append(c_exposure)
         ###Dataframe corrections###
         #Reset first time in t_mean to be 0
         firsttime_mean = df['t_mean'][df.index[0]]
         df['t_mean'] = df['t_mean'] - firsttime_mean
 
-        #Find indicies of data above 5 sigma of mean , 
-            #flagged points, and points with less than 10 seconds of exp
-        stdev = np.std(df['flux_bgsub'])
-        bluepoints = np.where( 
-                abs(df['flux_bgsub'] - np.nanmean(df['flux_bgsub'])) 
-                > 5*stdev )[0]
-        flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
-        redpoints1 = np.where(np.array(flag_bool_vals) == True)[0]
-        redpoints2 = np.where(df['exptime'] < 10)[0]
-        redpoints = np.unique(np.concatenate([redpoints1, redpoints2]))
-        redpoints = redpoints + df.index[0]
-        bluepoints = bluepoints + df.index[0]
+        #Find exposure, c_exposure
+        exposuretup = find_cEXP(df)
+        firsttime = exposuretup.firsttime
+        lasttime = exposuretup.lasttime
+        exposure = exposuretup.exposure
+        c_exposure = exposuretup.c_exposure
+        c_exp_vals.append(c_exposure)
 
+        #Filter for red and blue points
+        coloredtup = WDutils.ColoredPoints(df)
+        redpoints = coloredtup.redpoints
+        bluepoints = coloredtup.bluepoints
         droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
-        #Correction for flagged time
-        t_flagged = (len(droppoints) * 15) / 1000 
-        c_exposure = c_exposure - t_flagged
-        flagged_ratio = len(droppoints) / df.shape[0]
-        #c_flagged = -1*flagged_ratio
+        
+        #Corrections for relative scales
+        relativetup = WDutils.relativescales(df)
+        t_mean = relativetup.t_mean
+        flux_bgsub = relativetup.flux
+        flux_bgsub_err = relativetup.err
+
+        if len(redpoints) != 0:
+            t_mean_red = [ t_mean[ii] for ii in redpoints]
+            flux_bgsub_red = [ flux_bgsub[ii] for ii in redpoints]
+            flux_bgsub_err_red = [ flux_bgsub_err[ii] for ii in redpoints]
+        if len(bluepoints) != 0:
+            t_mean_blue = [ t_mean[ii] for ii in bluepoints ] 
+            flux_bgsub_blue = [ flux_bgsub[ii] for ii in bluepoints ]
+            flux_bgsub_err_blue = [ flux_bgsub_err[ii] for ii in bluepoints ]
+
+        #Drop red and blue points
         df_reduced = df.drop(index=droppoints)
         df_reduced = df_reduced.reset_index(drop=True)
         
-        #Remove points where cps_bgsub is nan
-        idx_cps_nan = np.where( np.isnan(df_reduced['cps_bgsub']) )[0]
-        if len(idx_cps_nan) != 0:
-            df_reduced = df_reduced.drop(index=idx_cps_nan)
-            df_reduced = df_reduced.reset_index(drop=True)
 
         if df_reduced.shape[0] < 10:
             df_number +=1
             continue
 
-        #If first point is not within 3 sigma, remove
-        if (df_reduced['flux_bgsub'][df_reduced.index[0]] 
-                - np.nanmean(df['flux_bgsub'])) > 3*stdev:
-            df_reduced = df_reduced.drop(index=df_reduced.index[0])
-            df_reduced = df_reduced.reset_index(drop=True)
+        #Drop bad first and last points
+        df_reduced = WDutils.df_firstlast(df_reduced)
 
-        #If last point is not within 3 sigma, remove
-        if (df_reduced['flux_bgsub'][df_reduced.index[-1]] 
-                - np.nanmean(df['flux_bgsub'])) > 3*stdev:
-            df_reduced = df_reduced.drop(index=df_reduced.index[-1])
-            df_reduced = df_reduced.reset_index(drop=True)
+        #Have to do this again to get the reduced indicies
+        relativetup_reduced = WDutils.relativescales(df_reduced)
+        t_mean = relativetup_reduced.t_mean
+        flux_bgsub = relativetup_reduced.flux
+        flux_bgsub_err = relativetup_reduced.err
 
         ###Grab magnitude information###
         df_m_ab = np.nanmean(df_reduced['mag_bgsub'])
@@ -435,51 +433,22 @@ def main(csvname,
         magdic["sigma"].append(df_sigma_mag)
         magdic["weight"].append(.25)
         
-        #Correction for relative scales
-        flux_bgsub = df_reduced['flux_bgsub']
-        flux_bgsub_median = np.median(flux_bgsub)
-        flux_bgsub = (( flux_bgsub / flux_bgsub_median ) - 1.0) * 1000
-        flux_bgsub_err = (
-                df_reduced['flux_bgsub_err'] / flux_bgsub_median) * 1000
-        t_mean = df_reduced['t_mean']
-        
         #Math points in other band
         if other_band_exists:
             idx_exposuregroup_other = np.where( 
                     (alldata_tmean_other > firsttime) 
                     & (alldata_tmean_other < lasttime))[0]
+
             t_mean_other = np.array(
                     alldata_tmean_other[idx_exposuregroup_other] 
                     - firsttime_mean)
+
             flux_bgsub_other = np.array(
                     alldata_flux_bgsub_other[idx_exposuregroup_other])
+
             flux_bgsub_err_other = np.array(
                     alldata_flux_bgsub_err_other[idx_exposuregroup_other])
-            idx_flux_nan_other = np.where(np.isnan(flux_bgsub_other))[0]
-            if len(idx_flux_nan_other) != 0:
-                t_mean_other = np.delete(t_mean_other, idx_flux_nan_other)
-                flux_bgsub_other = np.delete(
-                        flux_bgsub_other, idx_flux_nan_other)
-                flux_bgsub_err_other = np.delete(
-                        flux_bgsub_err_other, idx_flux_nan_other)
 
-        #Make the correction for relative scales for redpoints and bluepoints
-        if len(redpoints) != 0:
-            flux_bgsub_red = df['flux_bgsub'][redpoints]
-            flux_bgsub_red = (
-                    (flux_bgsub_red / flux_bgsub_median) - 1.0) * 1000
-            flux_bgsub_err_red = (
-                    df['flux_bgsub_err'][redpoints] 
-                    / flux_bgsub_median) * 1000
-            t_mean_red = df['t_mean'][redpoints]
-        if len(bluepoints) != 0:
-            flux_bgsub_blue = df['flux_bgsub'][bluepoints]
-            flux_bgsub_blue = (
-                    (flux_bgsub_blue / flux_bgsub_median) - 1.0) * 1000
-            flux_bgsub_err_blue = (
-                    df['flux_bgsub_err'][bluepoints] 
-                    / flux_bgsub_median) * 1000
-            t_mean_blue = df['t_mean'][bluepoints]
 
         ###Periodogram Creation###
         #Fist do the periodogram of the data
@@ -487,151 +456,40 @@ def main(csvname,
         freq, amp = ls.autopower(nyquist_factor=1)
         
         #Periodogram for dither information
-        ls_detrad = LombScargle(t_mean, df_reduced['detrad'])
+        detrad = df_reduced['detrad']
+        ls_detrad = LombScargle(t_mean, detrad)
         freq_detrad, amp_detrad = ls_detrad.autopower(nyquist_factor=1)
 
         #Periodogram for expt information
-        ls_expt = LombScargle(t_mean, df_reduced['exptime'])
+        exptime = df_reduced['exptime']
+        ls_expt = LombScargle(t_mean, exptime)
         freq_expt, amp_expt = ls_expt.autopower(nyquist_factor=1)
 
-        #Identify statistically significant peaks
-        top5amp = heapq.nlargest(5, amp)
-        #top5amp_expt = heapq.nlargest(5, amp_expt)
-        top5amp_detrad = heapq.nlargest(5, amp_detrad)
-        #Find bad peaks
-        bad_detrad = []
-        for a in top5amp_detrad:
-            if a == float('inf'):
-                continue
-            idx = np.where(amp_detrad == a)[0]
-            f = freq[idx]
-            lowerbound = f - prange
-            upperbound = f + prange
-            bad_detrad.append( (lowerbound, upperbound) )
-            
-        #Calculate false alarm thresholds
-        probabilities = [fap]
-        faplevels = ls.false_alarm_level(probabilities)
-
-        ditherfapval = .25
-        ditherfaplevel = ls.false_alarm_level(ditherfapval)
-        ditherperiod_exists=False
-        sspeaks = [] #freq,amp,fap tuples
-        for a in top5amp:
-            #False alarm probability threshold
-            fapval = ls.false_alarm_probability(a)
-            if fapval <= fap:
-                ratio = a / ls.false_alarm_level(fap)
-                idx = np.where(amp==a)[0]
-                f = freq[idx]
-                #Now check if it is in any of the bad ranges
-                hits = 0
-                for tup in bad_detrad:
-                    if ( f > tup[0] ) and ( f < tup[1] ):
-                        hits+=1
-                        ditherperiod_exists = True
-                #If hits is still 0, the peak isnt in any of the bad ranges
-                if hits == 0:
-                    sspeaks.append( (f, a, fapval, ratio) ) 
-            elif (fapval > fap) and (fapval <= ditherfapval):
-                idx = np.where(amp==a)[0]
-                f = freq[idx]
-                for tup in bad_detrad:
-                    if (f > tup[0]) and ( f < tup[1] ):
-                        ditherperiod_exists=True
-
-        #This is a crude way to ensure we don't get any dither harmonics
-        if ditherperiod_exists:
-            sspeaks = []
-        #Grab the info to show the strongest peak for the source
-        if len(sspeaks) != 0:
-            sspeaks_amp = [ peak[1] for peak in sspeaks ] 
-            sspeaks_freq = [ peak[0] for peak in sspeaks ]
-            sspeaks_fap = [ peak[2] for peak in sspeaks ] 
-            sspeaks_ratio = [ peak[3] for peak in sspeaks ]
-            strongest_freq = (
-                    sspeaks_freq[np.where(np.asarray(sspeaks_amp) 
-                    == max(sspeaks_amp))[0][0]])
-            strongest_period_ratio = (
-                    sspeaks_ratio[np.where(np.asarray(sspeaks_amp)
-                    ==max(sspeaks_amp))[0][0]])
-            strongest_period_fap = (
-                    sspeaks_fap[np.where(np.asarray(sspeaks_amp)
-                    ==max(sspeaks_amp))[0][0]])
-            strongest_period = 1.0 / strongest_freq
-            strongest_periods_list.append(
-                    (strongest_period[0], strongest_period_ratio))
-
-        c_periodogram = 0
-        for peak in sspeaks:
-            if (peak[0] < (1/ (exposure))) or (peak[0] > (1/25)):
-                    c_periodogram += peak[3] * .125
-            else:
-                c_periodogram += peak[3]
+        #Periodogram metric
+        pgram_tup = find_cPGRAM(ls, amp_detrad, exposure)
+        c_periodogram = pgram_tup.c
+        ditherperiod_exists = pgram_tup.ditherperiod_exists
+        strongest_period_tup = pgram_tup.strongest_period_tup 
+        if strongest_period_tup[0] != -1:
+            strongest_periods_list.append(strongest_period_tup)
+            fap_list.append(strongest_period_tup[2])
 
         c_pgram_vals.append(c_periodogram)
+        sspeaks = pgram_tup.sspeaks
 
         #Welch Stetson Variability Metric.
-        ws_times = [] 
-        ws_flux = [] 
-        ws_flux_err = [] 
-        ii_previous = 0     #Index to reduce number of iterations 
-        for i in range(len(t_mean)):
-            t = t_mean[i]
-            f = flux_bgsub[i]
-            ferr = flux_bgsub_err[i]
-            matchfound = False
-            if other_band_exists:
-                for ii in range(ii_previous, len(t_mean_other)): 
-                    tother = t_mean_other[ii]
-                    fother = flux_bgsub_other[ii]
-                    ferrother = flux_bgsub_err_other[ii]
-                    if abs(t-tother) < 1.5:
-                        matchfound = True
-                        ws_times.append( (t, tother) )
-                        ws_flux.append( (f, fother) )
-                        ws_flux_err.append( (ferr, ferrother) )
-                        ii_previous = ii
-                        break
-            if matchfound == False:
-                ws_times.append( (t, None) )
-                ws_flux.append( (f, None) )
-                ws_flux_err.append( (ferr, None) )
-
-        assert(len(ws_times) 
-               == len(ws_flux) 
-               == len(ws_flux_err) 
-               == len(t_mean))
-        ws_sum = 0
-        for i in range(len(ws_flux)):
-            fluxtup = ws_flux[i]
-            errtup = ws_flux_err[i]
-            if math.isnan(errtup[0]):
-                deltaband=0
-            else:
-                deltaband = ((fluxtup[0] - np.nanmean(flux_bgsub)) 
-                              / errtup[0])
-            if fluxtup[1] is None:
-                deltaother = 1
-            else:
-                assert(other_band_exists)
-                if len(flux_bgsub_other) == 0:
-                    deltaother = 1
-                else:
-                    if str(errtup[1]) == str(float('NaN')):
-                        deltraother = 1
-                    else:
-                        deltaother = ((fluxtup[1] 
-                                       - np.nanmean(flux_bgsub_other)) 
-                                       / errtup[1])
-
-            ws_sum += deltaband*deltaother
-        
-        c_ws = np.sqrt(1/(len(ws_times)*(len(ws_times)-1))) * ws_sum
-
-        #Crude way of making dither not count
-        if ditherperiod_exists:
-            c_ws = 0
+        if other_band_exists:
+            c_ws = find_cWS(t_mean, t_mean_other, 
+                            flux_bgsub, flux_bgsub_other,
+                            flux_bgsub_err, flux_bgsub_err_other,
+                            ditherperiod_exists,
+                            other_band_exists)
+        else:
+            c_ws = find_cWS(t_mean, None, 
+                            flux_bgsub, None,
+                            flux_bgsub_err, None,
+                            ditherperiod_exists,
+                            other_band_exists)
 
         c_ws_vals.append(c_ws)
 
@@ -701,6 +559,8 @@ def main(csvname,
                              color=bandcolors[band_other], marker='.', 
                              ls='', zorder=1, label=band_other, alpha=.25)
 
+            ax = plt.gca()
+            ax = WDutils.plotparams(ax)
             plt.title(band+' light curve')
             plt.xlabel('Time JD')
             plt.ylabel('Flux mmi')
@@ -713,9 +573,13 @@ def main(csvname,
             plt.title('Autocorrelation')
             plt.xlabel('Delay')
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            ax = plt.gca()
+            ax = WDutils.plotparams(ax)
 
             #Subplot for periodogram
             plt.subplot2grid((4,4), (2,0), colspan=2, rowspan=2)
+            ax = plt.gca()
+            ax = WDutils.plotparams(ax)
             plt.plot(freq, amp, 'g-', label='Data')
             plt.plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
             plt.plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
@@ -727,6 +591,9 @@ def main(csvname,
                 plt.ylim(0, np.max(amp)*2)
             except:
                 print("Issue with periodogram axes")
+
+            top5amp_detrad = heapq.nlargest(5, amp_detrad)
+            bad_detrad = pgram_tup.bad_detrad
             if any(np.isnan(x) for x in top5amp_detrad):
                 print("No detrad peaks for exposure group " + str(df_number))
             else:
@@ -734,13 +601,11 @@ def main(csvname,
                     plt.axvspan(tup[0], tup[1], alpha=.1, color='black')
             
             #ax[0][1].axvline(x=nyquistfreq, color='r', ls='--')
-            for level in faplevels:
-                idx = np.where(level == faplevels)[0][0]
-                fap = probabilities[idx]
+            for level in [.05]:
                 plt.axhline(level, color='black', alpha = .5, 
-                            ls = '--', label = 'FAP: '+str(fap))
-            plt.axhline(ditherfaplevel, color='black', alpha=.5, 
-                        ls=':', label = 'FAP: '+str(ditherfapval))
+                            ls = '--', label = 'FAP: '+str(level))
+            plt.axhline(.25, color='black', alpha=.5, 
+                        ls=':', label = 'FAP: '+str(.25))
 
             plt.legend()
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -813,11 +678,15 @@ def main(csvname,
     if len(all_periods) > 1:
         period_to_save = all_periods[np.where(np.asarray(all_ratios) 
                                               == max(all_ratios))[0][0]]
+        best_fap = min(fap_list)
     elif len(all_periods) == 1:
         period_to_save = all_periods[0]
         period_to_save = round(period_to_save,3)
+        best_fap = min(fap_list)
     else:
         period_to_save = ''
+        best_fap = ''
+
 
     #Generate output csv with pandas
     outputdic = {
@@ -827,12 +696,11 @@ def main(csvname,
             "BestRank":[round(bestrank, 3)], 
             "Comment":[comment_value], 
             "ABmag":[round(m_ab, 2)], 
-            "MagUncertainty":[round(c_mag,3)],
             "StrongestPeriod":[period_to_save], 
+            "False Alarm Prob.":[best_fap],
             "WS metric":[c_ws_best],
             "SimbadName":[simbad_name],
             "SimbadTypes":[simbad_types],
-            "FlaggedRatio":[allflaggedratio],
             "Spectype":[spectype],
             "KnownVariable":[variability], 
             "Binarity":[binarity],
@@ -851,7 +719,8 @@ def main(csvname,
 
         ###Page 1###
         #Drop flagged rows from alldata
-        alldata_flag_bool_vals = [ badflag_bool(x) for x in alldata['flags'] ]
+        alldata_flag_bool_vals = [ WDutils.badflag_bool(x) 
+                                   for x in alldata['flags'] ]
         alldata_flag_idx = np.where(
                 np.array(alldata_flag_bool_vals) == True)[0]
         alldata = alldata.drop(index = alldata_flag_idx)
@@ -909,13 +778,13 @@ def main(csvname,
 
             #Plot ASASSN data
             plt.subplot2grid((2,2), (1,0), colspan=1, rowspan=1)
-            ASASSN_output_V = readASASSN(
+            ASASSN_output_V = WDutils.readASASSN(
                     '../ASASSNphot_2/'+asassn_name+'_V.dat')
             ASASSN_JD_V = ASASSN_output_V[0]
             ASASSN_mag_V = ASASSN_output_V[1]
             ASASSN_mag_err_V = ASASSN_output_V[2]
 
-            ASASSN_output_g = readASASSN(
+            ASASSN_output_g = WDutils.readASASSN(
                     '../ASASSNphot_2/'+asassn_name+'_g.dat')
             ASASSN_JD_g = ASASSN_output_g[0]
             ASASSN_mag_g = ASASSN_output_g[1]
@@ -962,13 +831,13 @@ def main(csvname,
                 Vgroups_JD = []
                 Vgroups_mag = []
                 Vgroups_mag_err = []
-                for i in range(len(breaksASASSN_V)):
+                for i in range(len(breaksASN_V)):
                     if i == 0:
                         Vgroups_JD.append(ASASSN_JD_V[:breaksASN_V[i]])
                         Vgroups_mag.append(ASASSN_mag_V[:breaksASN_V[i]])
                         Vgroups_mag_err.append(
                                 ASASSN_mag_err_V[:breaksASN_V[i]])
-                    elif i == len(breaksASASSN_V) -1:
+                    elif i == len(breaksASN_V) -1:
                         Vgroups_JD.append(ASASSN_JD_V[breaksASN_V[i]:])
                         Vgroups_mag.append(ASASSN_mag_V[breaksASN_V[i]:])
                         Vgroups_mag_err.append(
