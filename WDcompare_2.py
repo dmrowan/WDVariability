@@ -11,14 +11,16 @@ import math
 #Dom Rowan REU 2018
 
 desc = """
-WDCompare: Combine all output csv's after running WDranker/WDgroup, sort by rank. Options to sort by additional metrics. Other options to add to existing AllData.csv and make histograms of flag/rank
+WDCompare: Combine all output csv's after running WDranker/WDgroup, 
+sort by rank. Options to sort by additional metrics. 
+Other options to add to existing AllData.csv and make histograms of flag/rank
 """
 
 #Generate AllData.csv from WDranker output
 def main(sortmag, sortperiod):
     #Get rid of current AllData.csv if it exists
     if os.path.isfile("Output/AllData.csv"):
-        confirm = input("Hit y to remove current AllData.csv and write new")
+        confirm = input("Hit y to remove current AllData.csv and write new  ")
         if confirm != 'y':
             return
         else:
@@ -29,6 +31,7 @@ def main(sortmag, sortperiod):
     bigdf = pd.DataFrame()
     pbar = ProgressBar()
     print("Iterating through Output files")
+    print(len(os.listdir(os.getcwd()+"/Output/")))
     for outputcsv in pbar(os.listdir(os.getcwd()+"/Output/")):
         if outputcsv.endswith('.csv'):
             #Import the csv into a pandas df
@@ -59,7 +62,10 @@ def update(sortmag, sortperiod):
         if outputcsv.endswith('.csv'):
             if outputcsv != 'AllData.csv':
                 #If source/band not in AllData.csv, add row
-                input_idx = np.where((input_df['SourceName'] == outputcsv[:-15]) & (input_df['Band'] == outputcsv[-14:-11]))[0]
+                input_idx = np.where((input_df['SourceName'] 
+                                      == outputcsv[:-15]) 
+                                      & (input_df['Band'] 
+                                      == outputcsv[-14:-11]))[0]
                 if len(input_idx) == 0:
                     print("Adding {}".format(outputcsv))
                     df_temp = pd.read_csv(os.getcwd()+"/Output/"+outputcsv)
@@ -112,15 +118,62 @@ def rankhist():
     plt.ylabel("N")
     plt.show()
 
+def commentmatch(oldfname, newfname):
+    assert(os.path.isfile(oldfname))
+    assert(os.path.isfile(newfname))
+
+    df_old = pd.read_csv(oldfname)
+    df_new = pd.read_csv(newfname)
+
+    pbar = ProgressBar()
+    for i in pbar(range(len(df_new['SourceName']))):
+        if not str(df_new['Comment'][i]) == 'nan':
+            continue
+        else:
+            idx_old = np.where( (df_old['SourceName'] 
+                                 == df_new['SourceName'][i]) 
+                                 & (df_old['Band'] 
+                                 == df_new['Band'][i]) )[0]
+            if len(idx_old) == 0:
+                continue
+            else:
+                assert(len(idx_old)==1)
+                idx_old = idx_old[0]
+                oldcomment = df_old['Comment'][idx_old]
+                if str(oldcomment) == 'nan':
+                    continue
+                else:
+                    df_new.loc[i, 'Comment'] = oldcomment
+
+    df_new.to_csv("Output/AllData.csv", index=False)
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument("--sortmag", help="Sort by magnitude instead of rank", default=False, action='store_true')
-    parser.add_argument("--sortperiod", help="Sort by shortest period of strongest peak", default=False, action='store_true')
-    parser.add_argument("--flaghist", help="Generate histogram of flagged ratio", default=False, action='store_true')
-    parser.add_argument("--rankhist", help="Generate histogram of best ranks", default=False, action='store_true')
-    parser.add_argument("--update", help="Update current csv and re-sort", default=False, action='store_true')
+    parser.add_argument("--sortmag", 
+                        help="Sort by magnitude instead of rank", 
+                        default=False, action='store_true')
+    parser.add_argument("--sortperiod", 
+                        help="Sort by shortest period of strongest peak", 
+                        default=False, action='store_true')
+    parser.add_argument("--flaghist", 
+                        help="Generate histogram of flagged ratio", 
+                        default=False, action='store_true')
+    parser.add_argument("--rankhist", 
+                        help="Generate histogram of best ranks", 
+                        default=False, action='store_true')
+    parser.add_argument("--update", 
+                        help="Update current csv and re-sort", 
+                        default=False, action='store_true')
+    parser.add_arugment("--match", 
+                        help="Match comments from a previous runthrough", 
+                        default=False, action='store_true')
+    parser.add_arugment("--old", 
+                        help="old alldata.csv for matching", 
+                        type=str, default=None)
+    parser.add_argument("--new", 
+                        help="new alldata.csv for matching", 
+                        type=str, default=None)
     args= parser.parse_args()
 
     if args.flaghist:
@@ -129,6 +182,8 @@ if __name__ == "__main__":
         rankhist()
     elif args.update:
         update(sortmag = args.sortmag, sortperiod=args.sortperiod)
+    elif args.match:
+        commentmatch(args.old, args.new)
     else:
         main(sortmag = args.sortmag,sortperiod=args.sortperiod)
 
