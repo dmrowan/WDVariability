@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 from __future__ import print_function, division, absolute_import
+from astropy.coordinates import Angle
+from astropy import units as u
 import collections
 import numpy as np
 import pandas as pd
@@ -239,6 +241,71 @@ def relativescales(df):
                                                      'err'])
     tup = OutputTup(t_mean, flux_bgsub, flux_err)
     return tup
+
+def raconvert(h, m, s):
+    ra = Angle((h,m,s), unit='hourangle')
+    return ra.degree
+
+def decconvert(d, m, s):
+    dec = Angle((d,m,s), u.deg)
+    return dec.degree
+
+def tohms(ra, dec, fancy=False):
+    ra1 = Angle(ra, u.deg)
+    dec1 = Angle(dec, u.deg)
+    #print(ra1.hms)
+    #print(dec1.dms)
+    if not fancy:
+        return ra1.hms, dec1.dms
+    else:
+        r_hours = str(int(ra1.hms.h))
+        if ra1.hms.h < 10:
+            r_hours = '0'+r_hours
+
+        r_minutes = str(int(ra1.hms.m))
+        if ra1.hms.m < 10:
+            r_minutes = '0'+r_minutes
+
+        if ra1.hms.s < 10:
+            r_seconds = '0' +str(round(ra1.hms.s,2))
+        else:
+            r_seconds = str(round(ra1.hms.s,2))
+
+        r_string = "{0}{1}{2}".format(r_hours, r_minutes, r_seconds)
+        #Negative dec case
+        if dec1.dms.d < 0:
+            d_degrees = str(int(dec1.dms.d))
+            if abs(dec1.dms.d) < 10:
+                d_degrees = '0'+d_degrees
+
+            d_minutes = str(int(-1*dec1.dms.m))
+            if abs(dec1.dms.m) < 10:
+                d_minutes = '0'+d_minutes
+
+            if abs(dec1.dms.s) < 10:
+                d_seconds = '0' + str(round(-1*dec1.dms.s, 2))
+            else:
+                d_seconds = str(round(-1*dec1.dms.s, 2))
+
+            d_string = "{0}{1}{2}".format(d_degrees, d_minutes, d_seconds)
+        else:
+            d_degrees = str(int(dec1.dms.d))
+            if abs(dec1.dms.d) < 10:
+                d_degrees = '0'+d_degrees
+
+            d_minutes = str(int(dec1.dms.m))
+            if abs(dec1.dms.m) < 10:
+                d_minutes = '0'+d_minutes
+
+            if abs(dec1.dms.s) < 10:
+                d_seconds = '0' + str(round(dec1.dms.s, 2))
+            else:
+                d_seconds = str(round(dec1.dms.s, 2))
+            d_string = "+{0}{1}{2}".format(d_degrees, d_minutes, d_seconds)
+        return r_string+d_string
+
+
+            
 
 
 

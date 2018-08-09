@@ -93,8 +93,8 @@ def main(eclipsegenerate, pulsatorgenerate):
     
     #Run WDColorMag.py
     os.chdir('../GalexData_run6')
-    WDColorMag.main(False, False, False,None, True, False, True)
-    WDColorMag.main(False, False, False, None, True, False, False)
+    WDColorMag.main(False, True, False, True)
+    WDColorMag.main(False, True, False, False)
 
     #Run WDsigmamag.py
     WDsigmamag.percentile(True)
