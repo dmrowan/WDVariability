@@ -15,6 +15,7 @@ from progressbar import ProgressBar
 import WDranker_2
 import WDutils
 import random
+import time
 
 class Visit:
     def __init__(self, df):
@@ -45,25 +46,40 @@ class Visit:
         self.timereset = True
 
     #Inject an optical lc and scale by multiplicative factor
-    def inject(self, observation_list, mf, plot=False):
-        self.reset_time()
+    def inject(self, opticalLC, mf, plot=False):
+        if self.timereset==False:
+            self.reset_time()
+
         t_mean = self.df['t_mean']
         #Shift to relative flux scales
-        relativetup = WDutils.relativescales(self.df)
+        relativetup = WDutils.relativescales_1(self.df)
         flux = relativetup.flux
         flux_err = relativetup.err
-
+        
         #Get optical data
-        df_optical = selectOptical(observation_list, 
-                                   exposure=self.exposure/60)
+        df_optical = selectOptical(opticalLC, 
+                                   exposure=self.exposure/60, plot=plot)
 
         optical_flux = np.interp(t_mean, df_optical['time'], 
                                  df_optical['flux'])
 
         optical_flux = optical_flux * mf
 
-        self.flux_injected = [ flux[i] + optical_flux[i] 
+        flux_injected = [ flux[i] * optical_flux[i] 
                               for i in range(len(flux)) ]
+
+        #Put back into df
+        self.df.loc[:, 'flux_bgsub'] = flux_injected
+        self.df.loc[:, 'flux_bgsub_err'] = flux_err
+        #Remove colored points (flag, expt, sigma clip)
+        coloredtup = WDutils.ColoredPoints(self.df)
+        droppoints = np.unique(np.concatenate([coloredtup.redpoints, 
+                                               coloredtup.bluepoints]))
+        self.df = self.df.drop(index=droppoints)
+        self.df = self.df.reset_index(drop=True)
+        t_mean = self.df['t_mean']
+        self.flux_injected = self.df['flux_bgsub']
+        flux_err = self.df['flux_bgsub_err']
 
         if plot:
             fig, ax = plt.subplots(1, 1)
@@ -86,9 +102,9 @@ class Visit:
         c_periodogram = pgram_tup.c
         ditherperiod_exists = pgram_tup.ditherperiod_exists
         if (not ditherperiod_exists) and (c_periodogram > 0):
-            return True
+            return 1
         else:
-            return False
+            return 0
 
     #See if we have an exisiting period
     def existingperiods(self):
@@ -170,41 +186,48 @@ def selectLC(binvalue, mag_array, path_array):
     idx_bin = np.where( (mag_array >= binvalue)
                        &(mag_array < binupper) )[0]
     filename = np.random.choice(path_array[idx_bin])
+    print(filename)
     
     #Standard data reduction procedure
     assert(os.path.isfile(filename))
     usecols = ['t0', 't1', 't_mean',
+               'mag_bgsub',
                'cps_bgsub', 'cps_bgsub_err', 'counts',
                'flux_bgsub', 'flux_bgsub_err',
                'detrad', 'flags', 'exptime']
     alldata = pd.read_csv(filename, usecols=usecols)
-    alldata = WDutils.df_fullreduce(alldata)
+    alldata = WDutils.df_reduce(alldata)
     alldata = WDutils.tmean_correction(alldata)
     #Split into visits 
     data = WDutils.dfsplit(alldata, 100)
+    source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
     #Pull good visits
     visit_list = []
     for df in data:
         visit = Visit(df)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
+                print(df)
                 visit_list.append(visit)
-    #Select random visit
-    visit = random.choice(visit_list)
-    return visit
+
+    print(len(visit_list))
+    if len(visit_list) == 0:
+        visit, source_mag = selectLC(binvalue, mag_array, path_array)
+        return visit, source_mag
+    else:
+        #Select random visit
+        visit = random.choice(visit_list)
+        return visit, source_mag
 
 
 #Select random observation and time chunk
-def selectOptical(observation_list, plot=False, exposure=30):
+def selectOptical(opticalLC, plot=False, exposure=30):
     exphalf = exposure/2
-    opticalLC = random.choice(observation_list)
     maxtime = max(opticalLC['time'])
     idx_low = np.where(opticalLC['time'] < exphalf)[0][-1]
     idx_high = np.where(opticalLC['time'] > maxtime-exphalf)[0][0]
     idx_center = np.arange(idx_low, idx_high, 1)
     time_center = np.random.choice(opticalLC['time'][idx_center])
-
-    time_center = 121 #Setting this value for testing
 
     df_optical = opticalLC[(opticalLC['time'] > time_center-exphalf) 
                           &(opticalLC['time'] < time_center+exphalf)]
@@ -219,54 +242,74 @@ def selectOptical(observation_list, plot=False, exposure=30):
         plt.show()
     return df_optical
 
-def main(mag, mag_array, path_array, observation_list):
-    visit = selectLC(mag, mag_array, path_array)
-    mf = random.choice(np.arange(0, 2, .01))
-    visit.inject(observation_list, mf)
+def main(mag, mag_array, path_array, opticalLC):
+
+    visit, source_mag = selectLC(mag, mag_array, path_array)
+    mf = random.choice(np.arange(0, 2, .1))
+    mf = round(mf, 1) #np.arange has some odd behaviors
+    visit.inject(opticalLC, mf)
     result = visit.assessrecovery()
-    tup = (mag, mf, result)
+    tup = (mag, source_mag, mf, result)
+    fname = str(mag)+"_bin.txt"
+    outputstr = (str(source_mag)+","
+                +str(mf)+","
+                +str(result))
+    os.system("echo {0} >> {1}".format(outputstr, fname))
+    print(outputstr)
     return tup
 
-def wrapper(mag_array, path_array, observation_list, iterations=1):
+"""
+def wrapper(mag_array, path_array, opticalLC, iterations=1):
     bins = np.arange(min(mag_array), max(mag_array)+.1, .1)
-    result_list = []
     pool = mp.Pool(processes = mp.cpu_count()+2)
     jobs=[]
-    result_list=[]
-    for i in iterations:
+    for i in range(iterations):
         for mag in bins:
-            job = pool.apply_async(main, args=(mag, mag_array,
-                                               path_array, 
-                                               observation_list,))
+            job = pool.apply_async(main, args=(mag, mag_array, 
+                                               path_array, opticalLC))
             jobs.append(job)
     for job in jobs:
-        result_list.append(job.get())
-    #Do something to save the results
+        result_tup = job.get()
+        magbin = result_tup[0]
+        fname = str(magbin)+"_bin.txt"
+        outputstr = (str(result_tup[1])+","
+                    +str(result_tup[2])+","
+                    +str(result_tup[3]))
+        os.system("echo {0} >> {1}".format(outputstr, fname))
+"""
+def wrapper(mag_array, path_array, opticalLC, iterations=1):
+    minbin = 16
+    maxbin = 21
+    #numpy arange doesn't always play nice
+    bins = np.arange(minbin, maxbin+.1, .1)
+    bins = np.array([ round(b, 1) for b in bins ])
+    for i in range(iterations):
+        for mag in bins:
+            main(mag, mag_array, path_array, opticalLC)
 
 
 if __name__ == '__main__':
+    with open('1145LC.pickle', 'rb') as p:
+        opticalLC = pickle.load(p)
+    with open('MagList.pickle', 'rb') as p2:
+        MagList = pickle.load(p2)
     
-    with open('fakeLC.pickle', 'rb') as p:
-        LC = pickle.load(p)
-    observation_list = [LC]
-    #selectOptical(observation_list, plot=True, exposure=22)
+    
+    mag_array = MagList[0]
+    path_array = MagList[1]
+
+    """
     visit = selectLC(19, np.array([19]), 
                      np.array(
                          ['GalexData_run6/SDSS-J222816.29+134714.4-NUV.csv']))
-    visit.inject(observation_list, 1, plot=True)
+    end = time.time()
+    visit.inject(opticalLC, 1, plot=True)
     result = visit.assessrecovery()
-    print(result)
+    """
+    #result = main(19, mag_array, path_array, opticalLC)
+    #print(result)
+    #wrapper(mag_array, path_array, opticalLC)
 
-
-
-
-
-
-
-
-
-
-
-
-
+    visit, source_mag = selectLC(1, np.array([1]), np.array(['WD-1238+127-NUV.csv']))
+    visit.inject(opticalLC, 1, plot=True)
 
