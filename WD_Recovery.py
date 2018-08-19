@@ -142,7 +142,6 @@ class Visit:
         else:
             return False
 
-
 #Generate list of sources used for planet injection
 def genMagLists(plot=False):
     print("---Generating Source Lists---")
@@ -306,34 +305,36 @@ def wrapper(mag_array, path_array, opticalLC,
     for job in jobs:
         job.get()
 
-#Iterate through all sources and all visits 
-def testfunction(path_array):
+#Iterate through all visits of a source
+def testfunction(filename, output):
     usecols = ['t0', 't1', 't_mean',
                'mag_bgsub',
                'cps_bgsub', 'cps_bgsub_err', 'counts',
                'flux_bgsub', 'flux_bgsub_err',
                'detrad', 'flags', 'exptime']
-    for filename in path_array:
-        assert(os.path.isfile(filename))
-        alldata = pd.read_csv(filename, usecols=usecols)
-        #Data reduction and time correction
-        alldata = WDutils.df_reduce(alldata)
-        alldata = WDutils.tmean_correction(alldata)
-        #Split into visits 
-        data = WDutils.dfsplit(alldata, 100)
-        source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
-        visit_list = []
-        for df in data:
-            visit = Visit(df)
-            if visit.good_df() == True: 
-                if visit.existingperiods() == False:
-                    print
-                    visit_list.append(visit)
+    assert(os.path.isfile(filename))
+    alldata = pd.read_csv(filename, usecols=usecols)
+    #Data reduction and time correction
+    alldata = WDutils.df_reduce(alldata)
+    alldata = WDutils.tmean_correction(alldata)
+    #Split into visits 
+    data = WDutils.dfsplit(alldata, 100)
+    source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
+    visit_list = []
+    for df in data:
+        visit = Visit(df)
+        if visit.good_df() == True: 
+            if visit.existingperiods() == False:
+                print
+                visit_list.append(visit)
 
-        #If there were no good visits, pick a new source
-        if len(visit_list) == 0:
-            print(filename, "no sources in visit list")
-            continue
+    #If there were no good visits, pick a new source
+    if len(visit_list) == 0:
+        outputstr = filename + " no sources in visit list"
+        if output is not None:
+            fname = output
+            os.system("echo {0} >> {1}".format(outputstr, fname))
+    else:
         for visit in visit_list:
             mf = random.choice(np.arange(0, 2, .1))
             mf = round(mf, 1) #np.arange has some odd behaviors
@@ -349,9 +350,20 @@ def testfunction(path_array):
                         +str(result))
 
             print(outputstr)
-            fname = 'testoutput.txt'
-            os.system("echo {0} >> {1}".format(outputstr, fname))
+            if output is not None:
+                fname = output
+                os.system("echo {0} >> {1}".format(outputstr, fname))
 
+#Multiprocessing of testfunction
+def testfunction_wrapper(path_array, output, p):
+    #Create mp pool and iterate
+    pool = mp.Pool(processes = p)
+    jobs=[]
+    for filename in path_array:
+        job = pool.apply_async(testfunction, args=(filename, output,))
+        jobs.append(job)
+    for job in jobs:
+        job.get()
     
 if __name__ == '__main__':
 
@@ -368,6 +380,8 @@ if __name__ == '__main__':
                         type=int, default=4)
     parser.add_argument("--output", help="Output filename to save results",
                         type=str, default=None)
+    parser.add_argument("--test", help="Use test function wrapper",
+                        default=False, action='store_true')
     args=parser.parse_args()
 
     #Argument assertions
@@ -386,16 +400,9 @@ if __name__ == '__main__':
     mag_array = MagList[0]
     path_array = MagList[1]
 
-    #wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
-    #        args.mu, args.bs, args.p, args.output)
-
-    testfunction(path_array)
+    if args.test:
+        testfunction_wrapper(path_array, args.output, args.p)
+    else:
+        wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
+                args.mu, args.bs, args.p, args.output)
     
-
-
-    #for i in range(50):
-    #    visit, source_mag = selectLC(1, np.array([1]), np.array(['WD-0102+004-NUV.csv']))
-    #    visit.inject(opticalLC, 1, plot=False)
-    #    result = visit.assessrecovery()
-    #    print(result)
-
