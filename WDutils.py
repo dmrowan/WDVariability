@@ -1,5 +1,5 @@
-#!/usr/bin/env python
 from __future__ import print_function, division, absolute_import
+# Third party imports
 from astropy.coordinates import Angle
 from astropy import units as u
 import collections
@@ -8,11 +8,20 @@ import pandas as pd
 #Dom Rowan REU 2018
 
 desc="""
-WDutils: Utiliy functions for WD project
+WDutils: Utility functions for WD project
 """
 
-#Read in ASASSN tables
+#-----------------------------------------------------------------------------
 def readASASSN(path):
+    '''
+    Read in an ASASSN dat file
+    
+    :param path: file path to ASASSN dat file
+
+    :type path: str
+
+    :returns: list of time, list of magnitudes, list of err
+    '''
     #Initialize lists
     jd_list = []
     mag_list = []
@@ -41,10 +50,19 @@ def readASASSN(path):
     mag_err_list = [ float(element) for element in mag_err_list ]
 
     return [jd_list, mag_list, mag_err_list]
+#----------------------------------------------------------------------------
 
-
-#Return True if bad flag exists in flagval
+#----------------------------------------------------------------------------
 def badflag_bool(x):
+    '''
+    Determine if a bad flag exists in flag value
+
+    :param x: flag value from gPhoton 'flag' column
+
+    :type x: int
+
+    :returns: Boolean -- existence of bad flag
+    '''
     bvals = [512,256,128,64,32,16,8,4,2,1]
     val = x
     output_string = ''
@@ -67,9 +85,23 @@ def badflag_bool(x):
         else:
             continue
     return False
+#----------------------------------------------------------------------------
 
-#Return idx of catalog match (name based query)
+#----------------------------------------------------------------------------
 def catalog_match(source, bigcatalog):
+    '''
+    Return idx of catalog match using name based query
+
+    :param source: name of object to query
+
+    :type source: str
+
+    :param bigcatalog: catalog to query
+
+    :type bigcatalog: pandas df
+
+    :returns: numpy array -- indicies of catalog match
+    '''
     #Based of nhyphens and leading characters of source
     nhyphens = len(np.where(np.array(list(source)) == '-')[0])
     if ( (source[0:4] == 'Gaia') or
@@ -114,9 +146,20 @@ def catalog_match(source, bigcatalog):
                     source.replace('-', ' ',nhyphens-1))[0]
 
     return(bigcatalog_idx)
+#----------------------------------------------------------------------------
 
-#Basic data filtering for gPhoton output
+#----------------------------------------------------------------------------
 def df_reduce(df):
+    '''
+    Basic data filtering for gPhoton output
+
+    :param df: gPhoton output df
+
+    :type df: pandas DataFrame with columns cps_bgsub, counts, flux_bgsub
+
+    :returns: pandas DataFrame -- reduced from initial with reset indicies
+    '''
+              
     idx_reduce = np.where( (df['cps_bgsub'] > 10e10)
         | (df['cps_bgsub_err'] > 10e10)
         | (df['counts'] < 1)
@@ -131,8 +174,21 @@ def df_reduce(df):
 
     return df 
 
-#Additional reduction of flagged points, expt, sigmaclip
+#----------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------
 def df_fullreduce(df):
+    '''
+    Additional reduction of flagged points, expt, sigmaclip
+
+    :parmam df: gPhoton output pandas DataFram
+
+    :type df: pandas DataFrame with columns cps_bgsub, counts, flux_bgsub, 
+              flags, exptime
+
+    :returns: pandas DataFrame -- reduced from initial with reset indicies
+    '''
+    
     df = df_reduce(df)
 
     idx_flagged_bool = [ badflag_bool(x) for x in df['flags'] ]
@@ -153,9 +209,20 @@ def df_fullreduce(df):
     df = df.drop(index=idx_drop)
     df = df.reset_index(drop=True)
     return df
+#----------------------------------------------------------------------------
 
-#If the first and last points aren't within 3 sigma, remove
+#----------------------------------------------------------------------------
 def df_firstlast(df):
+    '''
+    If the first and last points aren't within 3 sigma, remove
+
+    :parmam df: gPhoton output pandas DataFram
+
+    :type df: pandas DataFrame with columns flux_bgsub
+
+    :returns: pandas DataFrame -- reduced from initial with reset indicies
+    '''
+
     stdev = np.std(df['flux_bgsub'])
     if (df['flux_bgsub'][df.index[0]]
             - np.nanmean(df['flux_bgsub'])) > 3*stdev:
@@ -168,10 +235,20 @@ def df_firstlast(df):
         df = df.reset_index(drop=True)
 
     return df
+#----------------------------------------------------------------------------
 
 
-#Make correction for t_mean by averaging t0 and t1
+#----------------------------------------------------------------------------
 def tmean_correction(df):
+    '''
+    Make correction for t_mean by averaging t0 and t1
+
+    :parmam df: gPhoton output pandas DataFram
+
+    :type df: pandas DataFrame with columns flux_bgsub
+
+    :returns: pandas DataFrame -- corrected t_mean column
+    '''
     idx_tmean_fix = np.where( (df['t_mean'] < 1)
                             | (df['t_mean'] > df['t1'])
                             | (np.isnan(df['t_mean'])))[0]
@@ -183,10 +260,23 @@ def tmean_correction(df):
         df['t_mean'][idx] = mean
 
     return df
+#----------------------------------------------------------------------------
 
-#Split df into visits, defined by tbreak
+#----------------------------------------------------------------------------
 def dfsplit(df, tbreak):
-    #tbreak in seconds
+    '''
+    Split df into visits, defined by tbreak
+
+    :parmam df: gPhoton output pandas DataFram
+
+    :type df: pandas DataFrame with columns flux_bgsub
+
+    :param tbreak: time gap in seconds by which to divide visits
+
+    :type tbreak: int, float
+
+    :returns: pandas DataFrame -- numpy array of pandas DataFrames
+    '''
     breaks = []
     for i in range(len(df['t0'])):
         if i != 0:
@@ -195,10 +285,19 @@ def dfsplit(df, tbreak):
 
     data = np.split(df, breaks)
     return data
+#----------------------------------------------------------------------------
 
-
-#Basic plot params (so I don't drive myself insane)
+#----------------------------------------------------------------------------
 def plotparams(ax):
+    '''
+    Basic plot params 
+
+    :param ax: axes to modify
+
+    :type ax: matplotlib axes object
+
+    :returns: modified matplotlib axes object
+    '''
     ax.minorticks_on()
     ax.yaxis.set_ticks_position('both')
     ax.xaxis.set_ticks_position('both')
@@ -208,9 +307,21 @@ def plotparams(ax):
     for axis in ['top', 'bottom', 'left', 'right']:
         ax.spines[axis].set_linewidth(1.5)
     return ax
+#----------------------------------------------------------------------------
 
-#Find indicies of flaggedpoints, sigmaclip, exposure gap
+#----------------------------------------------------------------------------
 def ColoredPoints(df):
+    '''
+    Find indicies of flaggedpoints, sigmaclip, exposure gap
+
+    :param df: gPhoton output pandas DataFrame
+
+    :type df: pandas DataFrame with columns flux_bgsub, flags, exptime
+
+    :returns: named tuple with attributes:
+                   tup.redpoints -- indicies of flagged points, low exptime
+                   tup.bluepoints -- indicies of sigma clip
+    '''
     stdev = np.std(df['flux_bgsub'])
     bluepoints = np.where(
             abs(df['flux_bgsub'] - np.nanmean(df['flux_bgsub']))
@@ -226,9 +337,22 @@ def ColoredPoints(df):
                                                      'bluepoints'])
     tup = OutputTup(redpoints, bluepoints)
     return tup
+#----------------------------------------------------------------------------
 
-#Output arrays for percent flux, err flux 
+#----------------------------------------------------------------------------
 def relativescales(df):
+    '''
+    Output arrays for percent flux, err flux 
+
+    :param df: gPhoton output pandas DataFrame
+
+    :type df: pandas DataFrame with columns flux_bgsub, t_mean, flux_bgsub_err
+
+    :returns: named tuple with attributes:
+                   tup.t_mean -- time column
+                   tup.flux -- relative flux %
+                   tup.err -- relative flux err
+    '''
     flux_bgsub = df['flux_bgsub']
     median = np.median(flux_bgsub)
     flux_bgsub = ((flux_bgsub/median)-1.0)*100
@@ -241,16 +365,102 @@ def relativescales(df):
                                                      'err'])
     tup = OutputTup(t_mean, flux_bgsub, flux_err)
     return tup
+#----------------------------------------------------------------------------
 
+#----------------------------------------------------------------------------
+def relativescales_1(df):
+    '''
+    Output arrays for percent flux, err flux in 0-1 relative scale
+
+    :param df: gPhoton output pandas DataFrame
+
+    :type df: pandas DataFrame with columns flux_bgsub, t_mean, flux_bgsub_err
+
+    :returns: named tuple with attributes:
+                   tup.t_mean -- time column
+                   tup.flux -- relative flux 
+                   tup.err -- relative flux err
+    '''
+    flux_bgsub = df['flux_bgsub']
+    median = np.median(flux_bgsub)
+    flux_bgsub = ((flux_bgsub/median))
+    flux_err = df['flux_bgsub_err'] / median
+    t_mean = df['t_mean']
+
+    OutputTup = collections.namedtuple('OutputTup', ['t_mean', 
+                                                     'flux',
+                                                     'err'])
+    tup = OutputTup(t_mean, flux_bgsub, flux_err)
+    return tup
+#----------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------
 def raconvert(h, m, s):
+    '''
+    Convert hour minute second RA to decimal
+
+    :param h: RA hour
+
+    :type h: int, float
+
+    :param m: RA minute
+
+    :type m: int, float
+
+    :param s: RA second
+
+    :type s: int, float
+
+    :returns: float -- right ascension in decimal format
+    '''
     ra = Angle((h,m,s), unit='hourangle')
     return ra.degree
+#----------------------------------------------------------------------------
 
+#Convert degree minute second to decimal
+#----------------------------------------------------------------------------
 def decconvert(d, m, s):
+    '''
+    Convert degree minute second DEC to decimal
+
+    :param d: DEC hour
+
+    :type d: int, float
+
+    :param m: DEC minute
+
+    :type m: int, float
+
+    :param s: DEC second
+
+    :type s: int, float
+
+    :returns: float -- declination in decimal format
+    '''
     dec = Angle((d,m,s), u.deg)
     return dec.degree
+#----------------------------------------------------------------------------
 
-def tohms(ra, dec, fancy=False):
+#----------------------------------------------------------------------------
+def tohms(ra=0, dec=0, fancy=False):
+    '''
+    Convert decimals ra and dec to hms and dms
+
+    :param ra: right ascension
+
+    :type ra: int, float
+
+    :param dec: declination
+
+    :type dec: int, float
+
+    :param fancy: return a fancy string output (default=False)
+
+    :type fancy: Boolean
+
+    :returns: { if not Fancy -- right ascension, declination in hms dms
+              { else: string formated hhmmss.ss+ddmmss.ss
+    '''
     ra1 = Angle(ra, u.deg)
     dec1 = Angle(dec, u.deg)
     #print(ra1.hms)
@@ -303,9 +513,154 @@ def tohms(ra, dec, fancy=False):
                 d_seconds = str(round(dec1.dms.s, 2))
             d_string = "+{0}{1}{2}".format(d_degrees, d_minutes, d_seconds)
         return r_string+d_string
+#----------------------------------------------------------------------------
 
 
-            
+#----------------------------------------------------------------------------
+def plotASASSN_LC(ax, asassn_name):
+    '''
+    Plot ASASSN light curve
 
+    :param ax: axes to modify
 
+    :type ax: matplotlib axes object
 
+    :param asassn_name: base ASASSN file path
+
+    :type asassn_name: str
+
+    :returns: matplotlib axes object -- light curve of ASASSN data
+    '''
+    ASASSN_output_V = readASASSN(
+            '../ASASSNphot_2/'+asassn_name+'_V.dat')
+    ASASSN_JD_V = ASASSN_output_V[0]
+    ASASSN_mag_V = ASASSN_output_V[1]
+    ASASSN_mag_err_V = ASASSN_output_V[2]
+
+    ASASSN_output_g = WDutils.readASASSN(
+            '../ASASSNphot_2/'+asassn_name+'_g.dat')
+    ASASSN_JD_g = ASASSN_output_g[0]
+    ASASSN_mag_g = ASASSN_output_g[1]
+    ASASSN_mag_err_g = ASASSN_output_g[2]
+
+    ax.errorbar(ASASSN_JD_V, ASASSN_mag_V,
+                 yerr=ASASSN_mag_err_V, color='blue',
+                 ls='-', label='V band', ecolor='gray')
+    ax.errorbar(ASASSN_JD_g, ASASSN_mag_g,
+                 yerr=ASASSN_mag_err_g, color='green',
+                 ls='-', label='g band', ecolor='gray')
+    #Having some issues here, set default ranges if there is a problem
+    try:
+        maxmag_g = max(ASASSN_mag_g)
+        minmag_g = min(ASASSN_mag_g)
+        minmag_V = min(ASASSN_mag_V)
+        maxmag_V = max(ASASSN_mag_V)
+    except:
+        maxmag_g = 20
+        minmag_g = 10
+        minmag_V = 10
+        maxmag_V = 20
+    maxmag = max(maxmag_V, maxmag_g)
+    minmag = min(minmag_V, minmag_g)
+    try:
+        ax.set_ylim(maxmag, minmag)
+    except:
+        ax.set_ylim(20, 10)
+
+    ax.set_xlabel('JD')
+    ax.set_ylabel("V Magnitude")
+    ax.title('ASASSN LC')
+    ax.legend()
+
+    return ax
+#----------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------
+def plotASASSN_pgram(ax, asassn_name):
+    '''
+    Plot ASASSN periodogram
+
+    :param ax: axes to modify
+
+    :type ax: matplotlib axes object
+
+    :param asassn_name: base ASASSN file path
+
+    :type asassn_name: str
+
+    :returns: matplotlib axes object -- periodogram of ASASSN data
+    '''
+    ASASSN_output_V = readASASSN(
+            '../ASASSNphot_2/'+asassn_name+'_V.dat')
+    ASASSN_JD_V = ASASSN_output_V[0]
+    ASASSN_mag_V = ASASSN_output_V[1]
+    ASASSN_mag_err_V = ASASSN_output_V[2]
+
+    ASASSN_output_g = WDutils.readASASSN(
+            '../ASASSNphot_2/'+asassn_name+'_g.dat')
+    ASASSN_JD_g = ASASSN_output_g[0]
+    ASASSN_mag_g = ASASSN_output_g[1]
+    ASASSN_mag_err_g = ASASSN_output_g[2]
+    if len(ASASSN_JD_V) > 5:
+        #Select the largest time group
+        breaksASN_V = []
+        for i in range(len(ASASSN_JD_V)):
+            if i != 0:
+                if (ASASSN_JD_V[i] - ASASSN_JD_V[i-1]) >= 100:
+                    breaksASN_V.append(i)
+
+        Vgroups_JD = []
+        Vgroups_mag = []
+        Vgroups_mag_err = []
+        for i in range(len(breaksASN_V)):
+            if i == 0:
+                Vgroups_JD.append(ASASSN_JD_V[:breaksASN_V[i]])
+                Vgroups_mag.append(ASASSN_mag_V[:breaksASN_V[i]])
+                Vgroups_mag_err.append(
+                        ASASSN_mag_err_V[:breaksASN_V[i]])
+            elif i == len(breaksASN_V) -1:
+                Vgroups_JD.append(ASASSN_JD_V[breaksASN_V[i]:])
+                Vgroups_mag.append(ASASSN_mag_V[breaksASN_V[i]:])
+                Vgroups_mag_err.append(
+                        ASASSN_mag_err_V[breaksASN_V[i]:])
+            else:
+                Vgroups_JD.append(
+                        ASASSN_JD_V[breaksASN_V[i-1]:breaksASN_V[i]])
+                Vgroups_mag.append(
+                        ASASSN_mag_V[breaksASN_V[i-1]:breaksASN_V[i]])
+                Vgroups_mag_err.append(
+                        ASASSN_mag_err_V[breaksASN_V[i-1]:breaksASN_V[i]])
+
+        length_V_list = [ len(l) for l in Vgroups_JD ]
+        idx_Vlongest = np.where(np.array(length_V_list)
+                                == max(length_V_list))[0][0]
+        ASASSN_pgramV_JD = Vgroups_JD[idx_Vlongest]
+        ASASSN_pgramV_mag = Vgroups_mag[idx_Vlongest]
+        ASASSN_pgramV_err = Vgroups_mag_err[idx_Vlongest]
+
+        #Generate LS periodogram
+        lsV = LombScargle(ASASSN_pgramV_JD,
+                          ASASSN_pgramV_mag,
+                          dy=ASASSN_pgramV_err)
+        freqV, ampV = lsV.autopower(nyquist_factor=1)
+        ax.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
+        ax.set_xlim(xmax=(1/30))
+        ax.set_axhline(y=lsV.false_alarm_level(.1),
+                    color='blue', alpha=.5,
+                    ls='--', label='.1 fal')
+    if len(ASASSN_JD_g) > 5:
+        lsg = LombScargle(ASASSN_JD_g,
+                          ASASSN_mag_g, dy=ASASSN_mag_err_g)
+        freqg, ampg = lsg.autopower(nyquist_factor=1)
+        ax.plot(freqg, ampg, color='green', label='g mag', zorder=1)
+        ax.set_xlim(xmax=(1/30))
+        ax.axhline(y=lsg.false_alarm_level(.1),
+                    color='green', alpha=.5, ls='--', label='.1 fal')
+
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Amplitude')
+    ax.set_title('Periodogram for ASASSN Data')
+    ax.legend(loc=1)
+
+    return ax
+#----------------------------------------------------------------------------
