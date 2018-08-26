@@ -2,8 +2,10 @@
 from __future__ import print_function, division, absolute_import
 import argparse
 from astropy.stats import LombScargle
-from gPhoton import gphoton_utils
+from astropy.time import Time
+#from gPhoton import gphoton_utils
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 import multiprocessing as mp
 import numpy as np
 import os
@@ -11,6 +13,7 @@ import pandas as pd
 import _pickle as pickle
 from progressbar import ProgressBar
 import random
+random.seed()
 import time
 import WDranker_2
 import WDutils
@@ -19,6 +22,32 @@ desc="""
 WD_Recovery: Procedure for injecting and recovering synthetic optical 
 data from WD-1145.
 """
+
+def calculate_jd(galex_time):
+    """
+    Calculates the Julian date, in the TDB time standard, given a GALEX time.
+
+    :param galex_time: A GALEX timestamp.
+
+    :type galex_time: float
+
+    :returns: float -- The time converted to a Julian date, in the TDB
+        time standard.
+    """
+
+    if np.isfinite(galex_time):
+        # Convert the GALEX timestamp to a Unix timestamp.
+        this_unix_time = Time(galex_time + 315964800., format="unix",
+                              scale="utc")
+
+        # Convert the Unix timestamp to a Julian date, measured in the
+        # TDB standard.
+        this_jd_time = this_unix_time.tdb.jd
+    else:
+        this_jd_time = np.nan
+
+    return this_jd_time
+
 
 #Define a class for a galex visit df
 class Visit:
@@ -48,7 +77,7 @@ class Visit:
     #Reset time to minutes from start
     def reset_time(self):
         for i in range(len(self.df['t_mean'])):
-            jd = gphoton_utils.calculate_jd(self.df['t_mean'][i])
+            jd = calculate_jd(self.df['t_mean'][i])
             if i == 0:
                 tmin = jd
             newtime = (jd - tmin) * 1440
@@ -194,13 +223,13 @@ def genMagLists(plot=False):
 
 
 #Choose a source and visit
-def selectLC(binvalue, mag_array, path_array):
+def selectLC(binvalue, binsize, mag_array, path_array):
     #First need to find indicies for bin
-    binupper = binvalue + .1
+    binupper = binvalue + binsize 
     idx_bin = np.where( (mag_array >= binvalue)
                        &(mag_array < binupper) )[0]
     filename = np.random.choice(path_array[idx_bin])
-    print(filename)
+    #print(filename)
     
     #Standard data reduction procedure
     assert(os.path.isfile(filename))
@@ -222,13 +251,12 @@ def selectLC(binvalue, mag_array, path_array):
         visit = Visit(df)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
-                print
                 visit_list.append(visit)
 
     #If there were no good visits, pick a new source
     if len(visit_list) == 0:
-        print(filename, "no sources in visit list")
-        visit, source_mag = selectLC(binvalue, mag_array, path_array)
+        #print(filename, "no sources in visit list")
+        visit, source_mag = selectLC(binvalue, binsize, mag_array, path_array)
         return visit, source_mag
     #Select random visit
     else:
@@ -261,13 +289,13 @@ def selectOptical(opticalLC, plot=False, exposure=30):
     return df_optical
 
 #Full injection procedure for single source
-def main(mag, mag_array, path_array, opticalLC, fname=None):
+def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
     #Select a visit
-    visit, source_mag = selectLC(mag, mag_array, path_array)
+    visit, source_mag = selectLC(mag, bs, mag_array, path_array)
 
     #Select a multiplicative factor
-    mf = random.choice(np.arange(0, 2, .1))
-    mf = round(mf, 1) #np.arange has some odd behaviors
+    mf = random.random() * 2
+    mf = round(mf, 3) 
     visit.inject(opticalLC, mf)
     result = visit.assessrecovery()
     tup = (mag, source_mag, mf, result)
@@ -281,11 +309,12 @@ def main(mag, mag_array, path_array, opticalLC, fname=None):
     if fname is not None:
         os.system("echo {0} >> {1}".format(outputstr, fname))
 
-    print(outputstr)
+    if verbose:
+        print(outputstr)
     return tup
 
 def wrapper(mag_array, path_array, opticalLC, 
-            iterations, ml, mu, bs, p, fname):
+            iterations, ml, mu, bs, p, fname, verbose):
     #Set up magnitude bins
     minbin=ml
     maxbin=mu
@@ -295,12 +324,11 @@ def wrapper(mag_array, path_array, opticalLC,
     #Create mp pool and iterate
     pool = mp.Pool(processes = p)
     jobs=[]
-    print(iterations)
     for i in range(iterations):
         for mag in bins:
-            job = pool.apply_async(main, args=(mag, mag_array, 
+            job = pool.apply_async(main, args=(mag, bs, mag_array, 
                                                path_array, opticalLC, 
-                                               fname,))
+                                               fname, verbose,))
             jobs.append(job)
     for job in jobs:
         job.get()
@@ -325,7 +353,6 @@ def testfunction(filename, output):
         visit = Visit(df)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
-                print
                 visit_list.append(visit)
 
     #If there were no good visits, pick a new source
@@ -364,7 +391,66 @@ def testfunction_wrapper(path_array, output, p):
         jobs.append(job)
     for job in jobs:
         job.get()
+
+def plot(fname, ml, mu, bs):
+    assert(os.path.isfile(fname))
+    with open(fname) as f:
+        lines = f.readlines()
+    mag = [[float(x.strip()) for x in line.split(',')][0] for line in lines]
+    mf = [[float(x.strip()) for x in line.split(',')][1] for line in lines]
+    out = [[float(x.strip()) for x in line.split(',')][2] for line in lines]
+
+    minbin=14
+    maxbin=23
+    bs = .1
+    magbins = np.arange(minbin, maxbin+bs, bs)
+    magbins = np.array([ round(b, 1) for b in magbins ])
+
+    mfbins = np.arange(0, 2, .1)
+    mfbins = np.array([ round(b, 1) for b in mfbins ])
+
+    array2d = np.array([magbins, mfbins])
+    totalarray = np.zeros((len(magbins), len(mfbins)))
+    recoveryarray = np.zeros((len(magbins), len(mfbins)))
+    resultarray = np.zeros((len(magbins), len(mfbins)))
+    for i in range(len(mag)):
+        magval = mag[i]
+        mfval = mf[i]
+        result = out[i]
+        magidx = np.where(array2d[0] <= magval)[0].max()
+        mfidx = np.where(array2d[1] <= mfval)[0].max()
+        totalarray[magidx, mfidx] += 1
+        recoveryarray[magidx, mfidx] += result
+    for x in range(totalarray.shape[0]):
+        for y in range(totalarray.shape[1]):
+            if totalarray[x, y] == 0:
+                resultarray[x, y] = 0
+            else:
+                resultarray[x,y] = recoveryarray[x,y] / totalarray[x,y]
+    #fig, (ax0, ax1, ax2) = plt.subplots(3, 1, figsize=(12, 12))
+    fig, ax0 = plt.subplots(1, 1, figsize=(12, 4))
+    #ax0.hist2d(plotmags, plotmf, bins=[magbins, mfbins], cmap='autumn')
+    ax0.imshow(resultarray.T, cmap='viridis', extent=(14, 23, 0, 2))
+    ax0.set_xlabel('NUV Magnitude (mag)', fontsize=25)
+    ax0.set_ylabel('Scale Factor', fontsize=25)
+    ax0.set_xticks([x for x in np.arange(14, 23, 1)])
+
+    #ax0.xaxis.set_minor_locator(MultipleLocator(10))
+    ax0 = WDutils.plotparams(ax0)
     
+    """
+    ax1 = WDutils.plotparams(ax1)
+    ax1.hist(mag, color='midnightblue', alpha=.75, bins=magbins,
+             linewidth=1.2, edgecolor='black')
+
+    ax2 = WDutils.plotparams(ax2)
+    ax2.hist(mf, color='midnightblue', alpha=.75, bins=mfbins,
+             linewidth=1.2, edgecolor='black')
+    """
+    plt.tight_layout()
+    
+    fig.savefig('RecoveryPlot.pdf')
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
@@ -380,8 +466,12 @@ if __name__ == '__main__':
                         type=int, default=4)
     parser.add_argument("--output", help="Output filename to save results",
                         type=str, default=None)
+    parser.add_argument("--v", help='Verbose', 
+                        default=False, action='store_true')
     parser.add_argument("--test", help="Use test function wrapper",
                         default=False, action='store_true')
+    parser.add_argument("--plot", help="Make plot with input file name", 
+                        default=None, type=str)
     args=parser.parse_args()
 
     #Argument assertions
@@ -402,7 +492,8 @@ if __name__ == '__main__':
 
     if args.test:
         testfunction_wrapper(path_array, args.output, args.p)
+    elif args.plot is not None:
+        plot(args.plot, args.ml, args.mu, args.bs)
     else:
         wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
-                args.mu, args.bs, args.p, args.output)
-    
+                args.mu, args.bs, args.p, args.output, args.v)
