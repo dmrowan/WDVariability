@@ -16,6 +16,7 @@ import _pickle as pickle
 from scipy.optimize import curve_fit
 from progressbar import ProgressBar
 import matplotlib.image as mpimg
+from PIL import Image
 
 desc="""
 WD_SED: Define a class for SEDs
@@ -73,6 +74,7 @@ class WDSED:
             self.gentileexists = False
         else:
             self.gentileexists = True
+            """
             if self.chi2H < self.chi2He:
                 self.atmfit = "H"
                 self.Teff = self.TeffH
@@ -83,6 +85,11 @@ class WDSED:
                 self.Teff = self.TeffHe
                 self.logg = self.loggHe
                 self.chi2 = self.chi2He
+            """
+            self.atmfit = "H"
+            self.Teff = self.TeffH
+            self.logg = self.loggH
+            self.chi2 = self.chi2H
 
         
         #Read in vosa sed info
@@ -392,13 +399,14 @@ def ExcessTower():
             sed.BB()
             sed_list.append(sed)
 
+    nfigs = len(sed_list)
     figT = plt.figure(figsize=(12,6))
-    gsT = gs.GridSpec(3,1)
-    gsT.update(hspace=0, wspace=.15)
-    plt.subplots_adjust(top=.98, right=.98)
+    gsT = gs.GridSpec(nfigs,1)
+    gsT.update(hspace=.2, wspace=.15)
+    plt.subplots_adjust(top=.98, right=.98, bottom=.13)
     figT.text(.02, .5, 'Flux ('+r'erg/s/cm$^2$/Å)', 
               va='center', rotation='vertical', fontsize=30)
-    figT.text(.5, .03, 'Wavelength (Å)', fontsize=30,
+    figT.text(.55, .05, 'Wavelength (Å)', fontsize=30,
               va='center', ha='center')
 
     arrow = u'$\u2193$'
@@ -407,21 +415,16 @@ def ExcessTower():
     afont = {'fontname':'Keraleeyam'}
 
     coords = []
-    for y in range(0, 3):
+    for y in range(0, nfigs):
         coords.append( (y,0) )
         #coords.append( (y,1) )
-    print(coords)
     idx_plot = 0
     for sed in sed_list:
         if idx_plot == len(sed_list) + 1:
             break
         plot_coords = coords[idx_plot]
-        plt.subplot2grid((3,1), plot_coords, colspan=1, rowspan=1)
+        plt.subplot2grid((nfigs,1), plot_coords, colspan=1, rowspan=1)
         axT = plt.subplot(gsT[plot_coords])
-        #print("-----")
-        #print(sed.labelnum)
-        #print(sed.df_all)
-        #print("-----")
         #Plot SED
         axT.errorbar(sed.df_nonIR['wavelength'], 
                     (sed.df_nonIR['flux'] / sed.mf), 
@@ -481,14 +484,16 @@ def ExcessTower():
 
         #Set xaxis
         if sed.df_wise['uplim'][2] == 1:
-            axT.set_xlim(xmin=-100,
-                         xmax = 1.2*sed.df_wise['wavelength'][1])
+            axT.set_xlim(
+                    xmax = 1.2*sed.df_wise['wavelength'][1])
         else:
-            axT.set_xlim(xmin=-100,
-                         xmax = 1.2*sed.df_wise['wavelength'][2])
+            axT.set_xlim(
+                    xmax = 1.2*sed.df_wise['wavelength'][2])
 
         for axis in ['top', 'bottom', 'left', 'right']:
             axT.spines[axis].set_linewidth(1.5)
+
+        axT.set_xlim(xmin = -1000)
 
         idx_plot += 1
 
@@ -593,13 +598,13 @@ def ExcessLatex():
     df_comments = pd.read_csv('ExcessTable_comments.csv')
     df_output = {'MainID':[],
                  'ID':[],
-                 'Wise 1':[],
-                 'Wise 1 Excess':[],
-                 'Wise 2':[],
-                 'Wise 2 Excess':[],
-                 'Wise 3':[],
-                 'Wise 3 Excess':[],
-                 'W1-W2':[],
+                 r'$W1$':[],
+                 r'$\sigma_{W1}$':[],
+                 r'$W2$':[],
+                 r'$\sigma_{W2}$':[],
+                 r'$W3$':[],
+                 r'$\sigma_{W3}$':[],
+                 r'$W1-W2$':[],
             }
     for i in range(len(df_comments['MainID'])):
         if df_comments['Excess'][i] == 1:
@@ -608,31 +613,32 @@ def ExcessLatex():
 
             W1mag = str(round(df_comments['W1mag'][i],1))
             W1err = str(round(df_comments['W1sigma'][i],1))
-            df_output['Wise 1'].append(W1mag+r'$\pm$'+W1err)
-            df_output['Wise 1 Excess'].append(
+            df_output[r'$W1$'].append(W1mag+r'$\pm$'+W1err)
+            df_output[r'$\sigma_{W1}$'].append(
                     round(df_comments['W1 excess'][i],1))
 
             W2mag = str(round(df_comments['W2mag'][i],1))
             W2err = str(round(df_comments['W2sigma'][i],1))
             if W2mag != 'nan':
-                df_output['Wise 2'].append(W2mag+r'$\pm$'+W2err)
-                df_output['Wise 2 Excess'].append(
+                df_output[r'$W2$'].append(W2mag+r'$\pm$'+W2err)
+                df_output[r'$\sigma_{W2}$'].append(
                         round(df_comments['W2 excess'][i],1))
-                df_output['W1-W2'].append(float(W1mag)-float(W2mag))
+                df_output[r'$W1-W2$'].append(
+                        float(W1mag)-float(W2mag))
             else:
-                df_output['Wise 2'].append("-")
-                df_output['Wise 2 Excess'].append("-")
-                df_output['W1-W2'].append("-")
+                df_output[r'$W2$'].append("-")
+                df_output[r'$\sigma_{W2}$'].append("-")
+                df_output[r'$W1-W2$'].append("-")
 
             W3mag = str(round(df_comments['W3mag'][i],1))
             W3err = str(round(df_comments['W3sigma'][i],1))
             if W3mag != 'nan':
-                df_output['Wise 3'].append(W3mag+r'$\pm$'+W3err)
-                df_output['Wise 3 Excess'].append(
+                df_output[r'$W3$'].append(W3mag+r'$\pm$'+W3err)
+                df_output[r'$\sigma_{W3}$'].append(
                         round(df_comments['W3 excess'][i],1))
             else:
-                df_output['Wise 3'].append("-")
-                df_output['Wise 3 Excess'].append("-")
+                df_output[r'$W3$'].append("-")
+                df_output[r'$\sigma_{W3}$'].append("-")
 
     df_output = pd.DataFrame(df_output)
     with open('ExcessLatex.tex', 'w') as f:
@@ -642,7 +648,7 @@ def ExcessLatex():
         lines = f.readlines()
         f.close()
 
-    lines.insert(3, " & & (mag) & & (mag) & & (mag) & & (mag) \\\ \n")
+    lines.insert(3, " & & (mag) & (mag) & (mag) & (mag) & (mag) & (mag) & (mag) \\\ \n")
     with open('ExcessLatex.tex', 'w') as f:
         contents = "".join(lines)
         f.write(contents)
@@ -672,11 +678,119 @@ def PSfits():
 
             fig.savefig('PSfits/labeled/'+sourcename+".png")
 
+def CutoutPlot():
+
+    f1 = 'US-1639'
+    path1 = 'PSfits/{}.png'.format(f1)
+    wpath1 = 'WISEimages/{}_WISE.png'.format(f1)
+
+    f2 = 'SDSS-J110505.94+583103.0'
+    path2 = 'PSfits/{}.png'.format(f2)
+    wpath2 = 'WISEimages/{}_WISE.png'.format(f2)
+
+    assert(all([os.path.isfile(p) for p in [path1, path2]]))
+    assert(all([os.path.isfile(p) for p in [wpath1, wpath2]]))
+    assert(os.path.isfile('IS.csv'))
+    df = pd.read_csv('IS.csv')
+
+    myeffectw = withStroke(foreground='black', linewidth=2)
+    txtkwargsw = dict(path_effects=[myeffectw])
+    afont = {'fontname':'Keraleeyam'}
+
+   
+    fig, (ax0, ax1) = plt.subplots(2, 2, figsize=(100, 100))
+    plt.subplots_adjust(hspace=0, wspace=-0.013)
+    #plt.subplots_adjust(top=.98, right=.98, bottom=.05)
+    for f, p, ax in zip([f1, f2], [path1, path2], [ax0[0], ax1[0]]):
+        idx_IS = np.where(df['MainID'] == f)[0][0]
+        labelnum = df['labelnum'][idx_IS]
+        ax.imshow(mpimg.imread(p))
+        ax.annotate(str(labelnum), xy=(.9, .9), 
+                     xycoords='axes fraction', color='xkcd:red', 
+                     fontsize=200, ha='center', va='center', 
+                     **afont, **txtkwargsw)
+        currentmin = ax.get_xlim()[0]
+        currentmax = ax.get_xlim()[1]
+        center = np.mean([currentmin, currentmax])
+        xspan = 700
+        ax.set_xlim(xmin=center-xspan, xmax=center+xspan)
+        ycenter = 1150
+        yspan = 700
+        ax.set_ylim(ymin=ycenter+yspan, ymax=ycenter-yspan)
+        ax.tick_params('both', labeltop=False, labelbottom=False, 
+                       labelleft=False, labelright=False)
+        for axis in ['top', 'bottom', 'left', 'right']:
+            ax.spines[axis].set_linewidth(20)
+            ax.spines[axis].set_color('gray')
+
+    ax0[0].scatter(center-1, ycenter+14, linewidths=20, 
+                edgecolors='darkblue', facecolors='none', s=1550000)
+    ax0[0].scatter(center-1, ycenter+14, linewidths=20, 
+                edgecolors='green', facecolors='none', s=6500000)
+    ax1[0].scatter(center-9, ycenter-8, linewidths=20, 
+                edgecolors='darkblue', facecolors='none', s=1550000)
+    ax1[0].scatter(center-9, ycenter-8, linewidths=20, 
+                edgecolors='green', facecolors='none', s=6500000)
+
+    ax0[1].imshow(mpimg.imread(wpath1))
+    ax1[1].imshow(mpimg.imread(wpath2))
+    center_w1 = 1375
+    ycenter_w1 = 1200
+    center_w2 = 1395
+    ycenter_w2 = 1190
+    xspan=yspan=700
+    ax0[1].set_xlim(xmin=center_w1-xspan, xmax=center_w1+xspan)
+    ax0[1].set_ylim(ymin=ycenter_w1+yspan, ymax=ycenter_w1-yspan)
+    ax0[1].scatter(center_w1, ycenter_w1, 
+                   linewidths=20, edgecolors='darkblue', 
+                   facecolors='none', s=80000)
+    ax0[1].scatter(center_w1, ycenter_w1,
+                   linewidths=20, edgecolors='green',
+                   facecolors='none', s=300000)
+    ax1[1].set_xlim(xmin=center_w2-xspan, xmax=center_w2+xspan)
+    ax1[1].set_ylim(ymin=ycenter_w2+yspan, ymax=ycenter_w2-yspan)
+    ax1[1].scatter(center_w2, ycenter_w2, 
+                   linewidths=20, edgecolors='darkblue', 
+                   facecolors='none', s=80000)
+    ax1[1].scatter(center_w2, ycenter_w2,
+                   linewidths=20, edgecolors='green',
+                   facecolors='none', s=300000)
+
+    for f, ax in zip([f1, f2], [ax0[1], ax1[1]]):
+        idx_IS = np.where(df['MainID'] == f)[0][0]
+        labelnum = df['labelnum'][idx_IS]
+        ax.annotate(str(labelnum), xy=(.9, .9), 
+                     xycoords='axes fraction', color='xkcd:red', 
+                     fontsize=200, ha='center', va='center', 
+                     **afont, **txtkwargsw)
+        ax.tick_params('both', labeltop=False, labelbottom=False, 
+                       labelleft=False, labelright=False)
+        for axis in ['top', 'bottom', 'left', 'right']:
+            ax.spines[axis].set_linewidth(20)
+            ax.spines[axis].set_color('gray')
+
+    fig.savefig('CutoutPlot.pdf')
+    '''
+    fig, ax = plt.subplots(1, 1, figsize=(100, 100))
+    ax.imshow(mpimg.imread(wpath2))
+    center = 1395
+    xspan = 700
+    ax.set_xlim(xmin=center-xspan, xmax=center+xspan)
+    ycenter = 1190
+    yspan = 700
+    ax.set_ylim(ymin=ycenter+yspan, ymax=ycenter-yspan)
+    ax.axis('off')
+    fig.savefig('CutoutPlot.pdf')
+    '''
+    
+
+
 def main():
-    ExcessTower()
+    #ExcessTower()
     #WISEdoublefig()
-    ExcessLatex()
+    #ExcessLatex()
     #PSfits()
+    CutoutPlot()
 
 
 if __name__ == '__main__':
