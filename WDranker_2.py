@@ -1,19 +1,20 @@
 #!/usr/bin/env python
 from __future__ import print_function, division, absolute_import
-import os
 import argparse
+from astropy.stats import LombScargle
+from astropy.stats import median_absolute_deviation
+import collections
+from gPhoton import gphoton_utils
+import heapq
+import math
+import matplotlib.gridspec as gs
+import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd
-from astropy.stats import LombScargle
-import heapq
-import matplotlib.image as mpimg
-import matplotlib.gridspec as gs
 import subprocess
-from gPhoton import gphoton_utils
-import math
 import WDutils 
-import collections
 #Dom Rowan REU 2018
 
 
@@ -22,6 +23,7 @@ WDranker_2.py: produces the ranked value c for a single source dependent on
 exposure, periodicity, autocorrelation, and other statistical measures
 """
 
+#Metric calculation magnitude RMS scatter
 def find_cRMS(m_ab, sigma_mag, band):
     #Path assertions
     sigmamag_percentile_path_NUV = "Catalog/magpercentiles_NUV.csv"
@@ -40,9 +42,16 @@ def find_cRMS(m_ab, sigma_mag, band):
     percentile50 = percentile_df['median']
     lowerbound = percentile_df['lower']
     upperbound = percentile_df['upper']
-    if m_ab < 20.75:
-        sigmamag_idx = np.where(
-                abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
+    #Take metric as ratio to median in bin
+    if m_ab < 21.5:
+        sigmamag_idx = np.where(magbins <= m_ab)[0]
+        if len(sigmamag_idx) > 0:
+            sigmamag_idx = max(sigmamag_idx)
+        else:
+            sigmamag_idx = len(magbins)-1
+
+        #sigmamag_idx = np.where(
+        #        abs(m_ab-magbins) == min(abs(m_ab-magbins)))[0]
         sigmafit_val = float(percentile50[sigmamag_idx])
         sigmafit_val_upper = float(upperbound[sigmamag_idx])
         if ((sigma_mag > sigmafit_val) 
@@ -57,6 +66,7 @@ def find_cRMS(m_ab, sigma_mag, band):
 
     return c_magfit
 
+#Metric calculation for exposure & quality flag
 def find_cEXP(df):
     #Get raw exposure value
     lasttime = list(df['t1'])[-1]
@@ -227,7 +237,7 @@ def find_cWS(t_mean, t_mean_other,
                 deltaother = 1
             else:
                 if str(errtup[1]) == str(float('NaN')):
-                    deltraother = 1
+                    deltaother = 1
                 else:
                     deltaother = ((fluxtup[1] 
                                    - np.nanmean(flux_bgsub_other)) 
@@ -243,6 +253,17 @@ def find_cWS(t_mean, t_mean_other,
 
     return c_ws
 
+def selfcorrelation(flux_bgsub):
+    autocorr_result = np.correlate(flux_bgsub, flux_bgsub, mode='full')
+    autocorr_result = autocorr_result[int(autocorr_result.size/2):]
+
+    if any(np.isinf(x) for x in autocorr_result):
+        print("Infinite Values in Autocorr for group ")
+        #Reassign Autocorr_result to be a bunch of zeros
+        numberofzeros = len(autocorr_result)
+        autocorr_result = np.zeros(numberofzeros)
+
+    return autocorr_result
 #Main ranking function
 def main(csvname,
          makeplot,
@@ -295,10 +316,9 @@ def main(csvname,
 
     ###Apparent Magnitude### 
     m_ab = np.nanmedian(alldata['mag_bgsub'])
-    sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1'] 
-            + alldata['mag_bgsub_err_2'])/2.0 )
+    sigma_mag_all = median_absolute_deviation(alldata['mag_bgsub'])
     magdic = {"mag":[m_ab], "sigma":[sigma_mag_all], "weight":[1]}
-    c_magfit = find_cRMS(m_ab, sigma_mag_all, band)
+    #c_magfit_all = find_cRMS(m_ab, sigma_mag_all, band)
 
 
     ###See if we have any data in the other band###
@@ -356,6 +376,7 @@ def main(csvname,
     df_number = 1
     c_vals = []
     c_ws_vals = []
+    c_magfit_vals = []
     c_exp_vals = []
     c_pgram_vals = []
     df_numbers_run = []
@@ -423,15 +444,6 @@ def main(csvname,
         flux_bgsub = relativetup_reduced.flux
         flux_bgsub_err = relativetup_reduced.err
 
-        ###Grab magnitude information###
-        df_m_ab = np.nanmean(df_reduced['mag_bgsub'])
-        df_sigma_mag = np.nanstd( 
-                (df_reduced['mag_bgsub_err_1'] 
-                + df_reduced['mag_bgsub_err_2'])/2.0 )
-
-        magdic["mag"].append(df_m_ab)
-        magdic["sigma"].append(df_sigma_mag)
-        magdic["weight"].append(.25)
         
         #Math points in other band
         if other_band_exists:
@@ -493,23 +505,23 @@ def main(csvname,
 
         c_ws_vals.append(c_ws)
 
-        ###Autocorrelation results###
-        autocorr_result = np.correlate(flux_bgsub, flux_bgsub, mode='full')
-        autocorr_result = autocorr_result[int(autocorr_result.size/2):]
+        #Sigma Mag Metric
+        ###Grab magnitude information###
+        df_sigma_mag = median_absolute_deviation(df_reduced['mag_bgsub'])
+        magdic["mag"].append(m_ab)
+        magdic["sigma"].append(df_sigma_mag)
+        magdic["weight"].append(.25)
+        c_magfit = find_cRMS(m_ab, df_sigma_mag, band)
+        c_magfit_vals.append(c_magfit)
 
-        if any(np.isinf(x) for x in autocorr_result):
-            print("Infinite Values in Autocorr for group "+str(df_number))
-            #Reassign Autocorr_result to be a bunch of zeros
-            numberofzeros = len(autocorr_result)
-            autocorr_result = np.zeros(numberofzeros)
+        ###Autocorrelation results###
+        autocorr_result = selfcorrelation(flux_bgsub)
 
         #####GENERATE RATING#####
         C = ((w_pgram * c_periodogram) 
             + (w_expt * c_exposure) 
             + (w_magfit * c_magfit) 
             + (w_WS * c_ws))
-        if C < 0:
-            C = 0
         print("Exposure group "+str(df_number)+" ranking: "+ str(C))
         c_vals.append(C)
 
@@ -580,15 +592,15 @@ def main(csvname,
             plt.subplot2grid((4,4), (2,0), colspan=2, rowspan=2)
             ax = plt.gca()
             ax = WDutils.plotparams(ax)
-            plt.plot(freq, amp, 'g-', label='Data')
-            plt.plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
-            plt.plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
-            plt.title(band+' Periodogram')
-            plt.xlabel('Freq [Hz]')
-            plt.ylabel('Amplitude')
-            plt.xlim(0, np.max(freq))
+            ax.plot(freq, amp, 'g-', label='Data')
+            ax.plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
+            ax.plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
+            ax.set_title(band+' Periodogram')
+            ax.set_xlabel('Freq [Hz]')
+            ax.set_ylabel('Amplitude')
+            ax.set_xlim(0, np.max(freq))
             try:
-                plt.ylim(0, np.max(amp)*2)
+                ax.set_ylim(0, np.max(amp)*2)
             except:
                 print("Issue with periodogram axes")
 
@@ -598,16 +610,16 @@ def main(csvname,
                 print("No detrad peaks for exposure group " + str(df_number))
             else:
                 for tup in bad_detrad:
-                    plt.axvspan(tup[0], tup[1], alpha=.1, color='black')
+                    ax.axvspan(tup[0], tup[1], alpha=.1, color='black')
             
             #ax[0][1].axvline(x=nyquistfreq, color='r', ls='--')
             for level in [.05]:
-                plt.axhline(level, color='black', alpha = .5, 
+                ax.axhline(level, color='black', alpha = .5, 
                             ls = '--', label = 'FAP: '+str(level))
-            plt.axhline(.25, color='black', alpha=.5, 
+            ax.axhline(.25, color='black', alpha=.5, 
                         ls=':', label = 'FAP: '+str(.25))
 
-            plt.legend()
+            ax.legend()
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
             #Subplot for png image
@@ -647,6 +659,7 @@ def main(csvname,
         idx_best = np.where(np.array(c_vals) == bestrank)[0][0]
         best_expt_group = df_numbers_run[idx_best]
         c_ws_best = c_ws_vals[idx_best]
+        c_magfit_best = c_magfit_vals[idx_best]
         c_ws_max = max(c_ws_vals)
         c_exp_max = max(c_exp_vals)
         c_pgram_max = max(c_pgram_vals)
@@ -655,22 +668,13 @@ def main(csvname,
         idx_best = 0
         best_expt_group=0
         c_ws_best = 0
+        c_magfit_best = 0
         c_ws_max = 0
         c_exp_max = 0
         c_pgram_max = 0
     print(source, "Total rank: " + str(totalrank), 
           "Best rank: " + str(bestrank), 
           "Best group: " + str(best_expt_group))
-
-    ###Commenting/Interactive Mode###
-    if comment:
-        if bestrank >= 0:
-            bestimagepath = ("PNGs/"+source+"-"
-                            +band+"qlp"+str(best_expt_group)+".png")
-            subprocess.call(['display', bestimagepath])
-            comment_value = input("Message code: ")
-    else:
-        comment_value=""
 
     ###Get most prevalent period from strongest_periods_list###
     all_periods = [ tup[0] for tup in strongest_periods_list ]
@@ -687,25 +691,24 @@ def main(csvname,
         period_to_save = ''
         best_fap = ''
 
-
     #Generate output csv with pandas
     outputdic = {
             "SourceName":[source], 
             "Band":[band], 
             "TotalRank":[round(totalrank, 3)], 
             "BestRank":[round(bestrank, 3)], 
-            "Comment":[comment_value], 
+            "Comment":[""],
             "ABmag":[round(m_ab, 2)], 
             "StrongestPeriod":[period_to_save], 
             "False Alarm Prob.":[best_fap],
             "WS metric":[c_ws_best],
+            "c_magfit":[c_magfit_best],
             "SimbadName":[simbad_name],
             "SimbadTypes":[simbad_types],
             "Spectype":[spectype],
             "KnownVariable":[variability], 
             "Binarity":[binarity],
             "Hasdisk":[hasdisk],
-            "c_magfit":[c_magfit],
             "c_ws_max":[c_ws_max],
             "c_exp_max":[c_exp_max],
             "c_pgram_max":[c_pgram_max],
@@ -778,109 +781,15 @@ def main(csvname,
 
             #Plot ASASSN data
             plt.subplot2grid((2,2), (1,0), colspan=1, rowspan=1)
-            ASASSN_output_V = WDutils.readASASSN(
-                    '../ASASSNphot_2/'+asassn_name+'_V.dat')
-            ASASSN_JD_V = ASASSN_output_V[0]
-            ASASSN_mag_V = ASASSN_output_V[1]
-            ASASSN_mag_err_V = ASASSN_output_V[2]
-
-            ASASSN_output_g = WDutils.readASASSN(
-                    '../ASASSNphot_2/'+asassn_name+'_g.dat')
-            ASASSN_JD_g = ASASSN_output_g[0]
-            ASASSN_mag_g = ASASSN_output_g[1]
-            ASASSN_mag_err_g = ASASSN_output_g[2]
-
-            plt.errorbar(ASASSN_JD_V, ASASSN_mag_V, 
-                         yerr=ASASSN_mag_err_V, color='blue', 
-                         ls='-', label='V band', ecolor='gray')
-            plt.errorbar(ASASSN_JD_g, ASASSN_mag_g, 
-                         yerr=ASASSN_mag_err_g, color='green', 
-                         ls='-', label='g band', ecolor='gray')
-            #Having some issues here, set default ranges if there is a problem
-            try:
-                maxmag_g = max(ASASSN_mag_g)
-                minmag_g = min(ASASSN_mag_g)
-                minmag_V = min(ASASSN_mag_V)
-                maxmag_V = max(ASASSN_mag_V)
-            except:
-                maxmag_g = 20
-                minmag_g = 10
-                minmag_V = 10
-                maxmag_V = 20
-            maxmag = max(maxmag_V, maxmag_g)
-            minmag = min(minmag_V, minmag_g)
-            try:    
-                plt.ylim(maxmag, minmag)
-            except:
-                plt.ylim(20, 10)
-            plt.xlabel('JD')
-            plt.ylabel("V Magnitude")
-            plt.title('ASASSN LC')
-            plt.legend()
+            axASASSN_LC = plt.gca()
+            axASASSN_LC = WDutils.plotASASSN_LC(axASASSN_LC, asassn_name)
+            axASASSN_LC = WDutils.plotparams(axASASSN_LC)
 
             plt.subplot2grid((2,2), (1,1), colspan=1, rowspan=1)
-            
-            if len(ASASSN_JD_V) > 5:
-                #Select the largest time group
-                breaksASN_V = []
-                for i in range(len(ASASSN_JD_V)):
-                    if i != 0:
-                        if (ASASSN_JD_V[i] - ASASSN_JD_V[i-1]) >= 100:
-                            breaksASN_V.append(i)
-                
-                Vgroups_JD = []
-                Vgroups_mag = []
-                Vgroups_mag_err = []
-                for i in range(len(breaksASN_V)):
-                    if i == 0:
-                        Vgroups_JD.append(ASASSN_JD_V[:breaksASN_V[i]])
-                        Vgroups_mag.append(ASASSN_mag_V[:breaksASN_V[i]])
-                        Vgroups_mag_err.append(
-                                ASASSN_mag_err_V[:breaksASN_V[i]])
-                    elif i == len(breaksASN_V) -1:
-                        Vgroups_JD.append(ASASSN_JD_V[breaksASN_V[i]:])
-                        Vgroups_mag.append(ASASSN_mag_V[breaksASN_V[i]:])
-                        Vgroups_mag_err.append(
-                                ASASSN_mag_err_V[breaksASN_V[i]:])
-                    else:
-                        Vgroups_JD.append(
-                                ASASSN_JD_V[breaksASN_V[i-1]:breaksASN_V[i]])
-                        Vgroups_mag.append(
-                                ASASSN_mag_V[breaksASN_V[i-1]:breaksASN_V[i]])
-                        Vgroups_mag_err.append(
-                                ASASSN_mag_err_V[breaksASN_V[i-1]:breaksASN_V[i]])
-
-                length_V_list = [ len(l) for l in Vgroups_JD ]
-                idx_Vlongest = np.where(np.array(length_V_list) 
-                                        == max(length_V_list))[0][0]
-                ASASSN_pgramV_JD = Vgroups_JD[idx_Vlongest]
-                ASASSN_pgramV_mag = Vgroups_mag[idx_Vlongest]
-                ASASSN_pgramV_err = Vgroups_mag_err[idx_Vlongest]
-
-                #Generate LS periodogram
-                lsV = LombScargle(ASASSN_pgramV_JD, 
-                                  ASASSN_pgramV_mag, 
-                                  dy=ASASSN_pgramV_err)
-                freqV, ampV = lsV.autopower(nyquist_factor=1)
-                plt.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
-                plt.xlim(xmax=(1/30))
-                plt.axhline(y=lsV.false_alarm_level(.1), 
-                            color='blue', alpha=.5, 
-                            ls='--', label='.1 fal')
-            if len(ASASSN_JD_g) > 5:
-                lsg = LombScargle(ASASSN_JD_g, 
-                                  ASASSN_mag_g, dy=ASASSN_mag_err_g)
-                freqg, ampg = lsg.autopower(nyquist_factor=1)
-                plt.plot(freqg, ampg, color='green', label='g mag', zorder=1)
-                plt.xlim(xmax=(1/30))
-                plt.axhline(y=lsg.false_alarm_level(.1), 
-                            color='green', alpha=.5, ls='--', label='.1 fal')
-        
-            plt.xlabel('Frequency [Hz]')
-            plt.ylabel('Amplitude')
-            plt.title('Periodogram for ASASSN Data')
-            plt.legend(loc=1)
-
+            axASASSN_pgram = plt.gca()
+            axASASSN_pgram = WDutils.plotASASSN_pgram(axASASSN_pgram, 
+                                                      asassn_name)
+            axASASSN_pgram = WDutils.plotparams(axASASSN_pgram)
             
         else:
             figall, axall = plt.subplots(1,1,figsize=(16,12))
