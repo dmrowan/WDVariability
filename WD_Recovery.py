@@ -3,6 +3,7 @@ from __future__ import print_function, division, absolute_import
 import argparse
 from astropy.stats import LombScargle
 from astropy.time import Time
+import collections
 #from gPhoton import gphoton_utils
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
@@ -51,10 +52,18 @@ def calculate_jd(galex_time):
 
 #Define a class for a galex visit df
 class Visit:
-    def __init__(self, df):
+    def __init__(self, df, filename, mag):
         self.df = df
         self.timereset = False
         self.df = self.df.reset_index(drop=True)
+        self.filename = filename
+        self.mag = mag
+        self.FUVfilename = filename.replace('NUV', 'FUV')
+        self.cEXP()
+
+    def cEXP(self):
+        tup = WDranker_2.find_cEXP(self.df)
+        self.c_exposure = tup.c_exposure
 
     #Simple check if we have enough usable data
     def good_df(self):
@@ -78,39 +87,124 @@ class Visit:
     def reset_time(self):
         for i in range(len(self.df['t_mean'])):
             jd = calculate_jd(self.df['t_mean'][i])
+
             if i == 0:
                 tmin = jd
+
+            if i == len(self.df['t_mean'])-1:
+                tmax = jd
+
             newtime = (jd - tmin) * 1440
             self.df.loc[i, 't_mean'] = newtime
         self.timereset = True
+        self.tmin = tmin
+        self.tmax = tmax
+
+    def FUVexists(self):
+        if os.path.isfile('FUV/'+self.FUVfilename):
+            return True
+        else:
+            return False
+    
+    def FUVmatch(self):
+        if self.FUVexists():
+            alldataFUV = pd.read_csv('FUV/'+self.FUVfilename)
+            alldataFUV = WDutils.df_fullreduce(alldataFUV)
+            alldataFUV = WDutils.tmean_correction(alldataFUV)
+            FUV_relativetup = WDutils.relativescales_1(alldataFUV)
+            alldataFUV_t_mean = FUV_relativetup.t_mean
+            alldataFUV_flux = FUV_relativetup.flux
+            alldataFUV_flux_err = FUV_relativetup.err
+
+            if self.timereset==False:
+                self.reset_time()
+            for i in range(len(alldataFUV['t_mean'])):
+                jd = calculate_jd(alldataFUV['t_mean'][i])
+                alldataFUV.loc[i, 't_mean'] = jd
+            FUV_relativetup = WDutils.relativescales_1(alldataFUV)
+            alldataFUV_t_mean = FUV_relativetup.t_mean
+            alldataFUV_flux = FUV_relativetup.flux
+            alldataFUV_flux_err = FUV_relativetup.err
+
+            idx_FUV = np.where( (alldataFUV_t_mean >= self.tmin)
+                               &(alldataFUV_t_mean <= self.tmax))[0]
+            t_meanFUV = np.array(alldataFUV_t_mean[idx_FUV])
+            flux_FUV = np.array(alldataFUV_flux[idx_FUV])
+            flux_err_FUV = np.array(alldataFUV_flux_err[idx_FUV])
+
+            t_meanFUV = [ (jd-self.tmin)*1440 for jd in t_meanFUV ]
+    
+            OutputTup = collections.namedtuple('OutputTup', ['t_mean', 
+                                                             'flux', 
+                                                             'err'])
+            tup = OutputTup(t_meanFUV, flux_FUV, flux_err_FUV)
+
+            return tup
+        else:
+            return None
 
     #Inject an optical lc and scale by multiplicative factor
-    def inject(self, opticalLC, mf, plot=False):
+    def inject(self, opticalLC, mf, plot=True):
         if self.timereset==False:
             self.reset_time()
+
+        if self.FUVexists():
+            exists=True
+            FUVtup = self.FUVmatch()
+            self.t_mean_FUV = FUVtup.t_mean
+            flux_FUV = FUVtup.flux
+            flux_err_FUV = FUVtup.err
+        else:
+            exists=False
 
         t_mean = self.df['t_mean']
         #Shift to relative flux scales
         relativetup = WDutils.relativescales_1(self.df)
         flux = relativetup.flux
         flux_err = relativetup.err
+
+        if plot:
+            fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8, 6))
+            ax0.errorbar(t_mean, flux, yerr=flux_err, color='red')
+            ax0.errorbar(t_mean_FUV, flux_FUV, 
+                         yerr=flux_err_FUV, color='blue')
+            ax0.axhline(np.median(flux), color='black', ls='--')
+            ax0.set_title("Original LC")
+            ax0 = WDutils.plotparams(ax0)
         
         #Get optical data
-        df_optical = selectOptical(opticalLC, 
-                                   exposure=self.exposure/60, plot=plot)
+        df_optical, ax_optical = selectOptical(opticalLC, 
+                                        exposure=self.exposure/60, plot=plot)
 
         #linear interpolation to match times
         optical_flux = np.interp(t_mean, df_optical['time'], 
                                  df_optical['flux'])
 
+        if exists:
+            optical_flux_FUV = np.interp(t_mean_FUV, df_optical['time'],
+                                         df_optical['flux'])
+
         #Scale by multiplicative factor
         optical_flux = optical_flux * mf
+        optical_flux = optical_flux / np.median(optical_flux)
         flux_injected = [ flux[i] * optical_flux[i] 
                               for i in range(len(flux)) ]
 
         #Put back into df
         self.df.loc[:, 'flux_bgsub'] = flux_injected
-        self.df.loc[:, 'flux_bgsub_err'] = flux_err
+        self.df.loc[:, 'flux_bgsub_err'] = flux_err / np.sqrt(mf)
+
+        #Do the same for the FUV
+        if exists:
+            optical_flux_FUV = optical_flux * mf
+            optical_flux_FUV = optical_flux / np.median(optical_flux)
+            flux_injected_FUV = [ flux_FUV[i] * optical_flux_FUV[i]
+                                    for i in range(len(flux_FUV)) ]
+            flux_err_FUV = flux_err_FUV / np.sqrt(mf)
+            self.flux_injected_FUV = flux_injected_FUV
+            self.flux_err_FUV = flux_err_FUV
+
+
         #Remove colored points (flag, expt, sigma clip)
         coloredtup = WDutils.ColoredPoints(self.df)
         droppoints = np.unique(np.concatenate([coloredtup.redpoints, 
@@ -118,19 +212,29 @@ class Visit:
         self.df = self.df.drop(index=droppoints)
         self.df = self.df.reset_index(drop=True)
 
-        t_mean = self.df['t_mean']
+        self.t_mean = self.df['t_mean']
         self.flux_injected = self.df['flux_bgsub']
-        flux_err = self.df['flux_bgsub_err']
+        self.flux_err = self.df['flux_bgsub_err']
 
         if plot:
-            fig, ax = plt.subplots(1, 1)
-            ax.errorbar(t_mean, self.flux_injected, 
-                        yerr=flux_err, color='red')
-            ax = WDutils.plotparams(ax)
+            ax1.errorbar(self.t_mean, self.flux_injected, 
+                         yerr=self.flux_err, color='red')
+            if exists:
+                ax1.errorbar(self.t_mean_FUV, self.flux_injected_FUV,
+                             yerr=self.flux_err_FUV, color='blue')
+            ax1.axhline(np.median(self.flux_injected), color='black', ls='--')
+            ax1.set_title("Injected LC")
+            ax1 = WDutils.plotparams(ax1)
+
             plt.show()
     
     #Use the periodogram metric to test if injected signal is recoverable
     def assessrecovery(self):
+        exists = self.FUVexists()
+
+        #Exposure metric already computed in init (self.c_exposure)
+
+        #Periodogram Metric
         time_seconds = self.df['t_mean'] * 60
         ls = LombScargle(time_seconds, self.flux_injected)
         freq, amp = ls.autopower(nyquist_factor=1)
@@ -143,10 +247,28 @@ class Visit:
         #Return 0,1 rseult of recovery
         c_periodogram = pgram_tup.c
         ditherperiod_exists = pgram_tup.ditherperiod_exists
+        '''
         if (not ditherperiod_exists) and (c_periodogram > 0):
             return 1
         else:
             return 0
+        '''
+
+        #Welch Stetson Metric
+        if exists:
+            c_ws = WDranker_2.find_cWS(self.t_mean, self.t_mean_FUV, 
+                                       self.flux_injected, 
+                                       self.flux_injected_FUV,
+                                       self.flux_err, self.flux_err_FUV,
+                                       ditherperiod_exists, self.FUVexists())
+        else:
+            c_ws = WDranker_2.find_cWS(self.t_mean, None,
+                                       self.flux_injected, None
+                                       self.flux_err, None,
+                                       ditherperiod_exists, self.FUVexists())
+
+        #RMS Metric
+        c_magfit = WDranker_2.find_cRMS(self.mag, sigma_mag, 'NUV')
 
     #See if we have an exisiting period
     def existingperiods(self):
@@ -248,14 +370,15 @@ def selectLC(binvalue, binsize, mag_array, path_array):
     #Pull good visits
     visit_list = []
     for df in data:
-        visit = Visit(df)
+        visit = Visit(df, filename, source_mag)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
                 visit_list.append(visit)
 
+    print(filename)
     #If there were no good visits, pick a new source
     if len(visit_list) == 0:
-        #print(filename, "no sources in visit list")
+        print(filename, "no sources in visit list")
         visit, source_mag = selectLC(binvalue, binsize, mag_array, path_array)
         return visit, source_mag
     #Select random visit
@@ -265,7 +388,7 @@ def selectLC(binvalue, binsize, mag_array, path_array):
 
 
 #Select random observation and time chunk
-def selectOptical(opticalLC, plot=False, exposure=30):
+def selectOptical(opticalLC, plot=True, exposure=30):
     exphalf = exposure/2
     maxtime = max(opticalLC['time'])
     #Find idx range corresponding to exposure
@@ -285,8 +408,10 @@ def selectOptical(opticalLC, plot=False, exposure=30):
         fig, ax = plt.subplots(1,1, figsize=(20, 6))
         ax.scatter(df_optical['time'], df_optical['flux'])
         ax = WDutils.plotparams(ax)
-        plt.show()
-    return df_optical
+        #plt.show()
+        return df_optical, ax
+    else:
+        return df_optical, None
 
 #Full injection procedure for single source
 def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
@@ -294,7 +419,8 @@ def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
     visit, source_mag = selectLC(mag, bs, mag_array, path_array)
 
     #Select a multiplicative factor
-    mf = random.random() * 2
+    #mf = random.random() * 2
+    mf = random.random() + 1
     mf = round(mf, 3) 
     visit.inject(opticalLC, mf)
     result = visit.assessrecovery()
