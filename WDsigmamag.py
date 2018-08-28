@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
+from astropy.stats import median_absolute_deviation
 import os
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 import pandas as pd
 from progressbar import ProgressBar
-from WDranker_2 import badflag_bool
+import WDutils
 import matplotlib.gridspec as gs
 from matplotlib.patheffects import withStroke
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
@@ -44,7 +45,7 @@ def main():
 
             #Drop rows with counts issues, badflags, low expt
             idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) | (alldata['counts'] > 100000) )[0]
-            idx_flags_bool = [ badflag_bool(x) for x in alldata['flags'] ]
+            idx_flags_bool = [ WDutils.badflag_bool(x) for x in alldata['flags'] ]
             idx_flags = np.where(np.array(idx_flags_bool) == True)[0]
             idx_expt = np.where(alldata['exptime'] < 10)[0]
             idx_to_drop = np.unique(np.concatenate([idx_high_cps, idx_flags, idx_expt]))
@@ -54,8 +55,8 @@ def main():
 
             #Get total magnitude average
             m_ab_all = np.nanmedian(alldata['mag_bgsub'])
-            sigma_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
-
+            #sigma_all = np.nanstd( (alldata['mag_bgsub_err_1'] + alldata['mag_bgsub_err_2'])/2.0 )
+            sigma_all = median_absolute_deviation(alldata['mag_bgsub'])
             #Add info to dictionary
             if (m_ab_all > 13) and (m_ab_all < 30):
                 if band=='NUV':
@@ -138,40 +139,42 @@ def percentile(showplot):
     #Read in able and sort by mag, drop mag > 21 FUV
     input_df_FUV_sorted = input_df_FUV.sort_values(by='m_ab')
     input_df_FUV_sorted = input_df_FUV_sorted.reset_index(drop=True)
-    droprows_FUV = np.where(input_df_FUV_sorted['m_ab'] > 20.75)[0]
+    droprows_FUV = np.where(input_df_FUV_sorted['m_ab'] > 21.5)[0]
     input_df_FUV_reduced = input_df_FUV_sorted.drop(index=droprows_FUV)
     input_df_FUV_reduced = input_df_FUV_reduced.reset_index(drop=True)
 
     #Read in able and sort by mag, drop mag > 21 NUV
     input_df_NUV_sorted = input_df_NUV.sort_values(by='m_ab')
     input_df_NUV_sorted = input_df_NUV_sorted.reset_index(drop=True)
-    droprows_NUV = np.where(input_df_NUV_sorted['m_ab'] > 20.75)[0]
+    droprows_NUV = np.where(input_df_NUV_sorted['m_ab'] > 21.5)[0]
     input_df_NUV_reduced = input_df_NUV_sorted.drop(index=droprows_NUV)
     input_df_NUV_reduced = input_df_NUV_reduced.reset_index(drop=True)
 
     #Bin by magnitude FUV
     breaks_FUV = []
-    magbins_FUV = np.arange(13, 20.75, .5)
+    magbins_FUV = np.arange(13, 21.5, .5)
     mag_i_FUV = 0 
     for i in range(len(input_df_FUV_reduced['m_ab'])):
         if mag_i_FUV != len(magbins_FUV) - 1:
             if input_df_FUV_reduced['m_ab'][i] >= magbins_FUV[mag_i_FUV + 1]:
                 breaks_FUV.append(i)
                 mag_i_FUV += 1
+    print(len(magbins_FUV), len(breaks_FUV))
     data_FUV = np.split(input_df_FUV_reduced, breaks_FUV)
     percentile50_FUV = []
     percentilelower_FUV = []
     percentileupper_FUV = []
-    lowerbound = 15.9
+    lowerbound = 5
     upperbound = 95
     for df in data_FUV:
         percentile50_FUV.append(np.percentile(df['sigma_m'], 50))
         percentilelower_FUV.append(np.percentile(df['sigma_m'],lowerbound))
         percentileupper_FUV.append(np.percentile(df['sigma_m'], upperbound))
+    print(len(percentile50_FUV))
 
     #Bin by magnitude NUV
     breaks_NUV = []
-    magbins_NUV = np.arange(13, 20.75, .25)
+    magbins_NUV = np.arange(13, 21.5, .5)
     mag_i_NUV = 0 
     for i in range(len(input_df_NUV_reduced['m_ab'])):
         if mag_i_NUV != len(magbins_NUV) - 1:
@@ -244,9 +247,12 @@ def percentile(showplot):
         ax0.scatter(x=0, y=0, c='xkcd:violet', s=100, label='Known Pulastor')
         ax0.scatter(x=0, y=0, c='xkcd:azure', s=100, label='Eclipse')
         ax0.legend(loc=2, fontsize=15, scatterpoints=1)
-        ax0.plot(magbins_NUV, percentilelower_NUV, color='blue', zorder=2, 
+        #ax0.plot(magbins_NUV, percentilelower_NUV, color='blue', zorder=2, 
+        #         linewidth=2, ls='-', 
+        #         label=r'$\bar{\sigma}-s_{-1}$', alpha=.75)
+        ax0.plot(magbins_NUV, percentile50_NUV, color='blue', zorder=2, 
                  linewidth=2, ls='-', 
-                 label=r'$\bar{\sigma}-s_{-1}$', alpha=.75)
+                 label='Median RMS', alpha=.75)
 
         ax0.set_xlim(xmin=13.25, xmax=21.25)
         ax0.set_ylim(ymin=-.025, ymax=.355)
@@ -265,9 +271,12 @@ def percentile(showplot):
             ax1.spines[axis].set_linewidth(1.5)
         #ax1.plot(magbins_FUV, percentile50_FUV, color='blue', zorder=2, linewidth=2, label='50 percentile', alpha=.75)
         #ax[1].plot(magbins_FUV, percentileupper_FUV, color='blue', zorder=2, linewidth=2, ls='--', label=str(upperbound)+" percentile", alpha=.75)
-        ax1.plot(magbins_FUV, percentilelower_FUV, color='blue', 
+        #ax1.plot(magbins_FUV, percentilelower_FUV, color='blue', 
+        #         zorder=2, linewidth=2, ls='-', 
+        #         label=r'$\bar{sigma}-1$sigma', alpha=.75)
+        ax1.plot(magbins_FUV, percentile50_FUV, color='blue', 
                  zorder=2, linewidth=2, ls='-', 
-                 label=r'$\bar{sigma}-1$sigma', alpha=.75)
+                 label="Median RMS", alpha=.75)
         for i in range(len(df_IS['MainID'])):
             if df_IS['type'][i] == 'Pulsator':
                 typecolor = 'xkcd:red'
@@ -278,10 +287,8 @@ def percentile(showplot):
             
             labelnum = df_IS['labelnum'][i]
 
-            #ax1.scatter(df_IS['m_ab_FUV'][i], df_IS['sigma_m_FUV'][i], c=typecolor, s=100, label='_nolegend_')
-            #ax1.annotate(str(labelnum), (df_IS['m_ab_FUV'][i], df_IS['sigma_m_FUV'][i]), fontsize=12.5)
-            if (df_IS['sigma_m_FUV'][i] < .405) and (df_IS['m_ab_FUV'][i] < 21.25):
-                ax1.text(df_IS['m_ab_FUV'][i], df_IS['sigma_m_FUV'][i], str(labelnum),  horizontalalignment='center', verticalalignment='center', weight='normal', fontsize=12.5, **txtkwargsw, zorder=4, color=typecolor)
+            #if (df_IS['sigma_m_FUV'][i] < .405) and (df_IS['m_ab_FUV'][i] < 21.25):
+                #ax1.text(df_IS['m_ab_FUV'][i], df_IS['sigma_m_FUV'][i], str(labelnum),  horizontalalignment='center', verticalalignment='center', weight='normal', fontsize=12.5, **txtkwargsw, zorder=4, color=typecolor)
 
         ax1.scatter(x=0, y=0, c='xkcd:red', s=100, label='New Pulsator')
         ax1.scatter(x=0, y=0, c='xkcd:violet', s=100, label='Known Pulastor')
@@ -293,15 +300,155 @@ def percentile(showplot):
         plt.subplots_adjust(hspace=.1)
         fig.savefig("/home/dmrowan/WhiteDwarfs/InterestingSources/SigmaMagPlot.pdf")
 
+def pick(csvname):
+    sigmamag_path_NUV = "Catalog/SigmaMag_NUV.csv"
+    sigmamag_percentile_path_NUV = "Catalog/magpercentiles_NUV.csv"
+    sigmamag_path_FUV = "Catalog/SigmaMag_FUV.csv"
+    sigmamag_percentile_path_FUV = "Catalog/magpercentiles_FUV.csv"
+    assert(os.path.isfile(sigmamag_path_NUV))
+    assert(os.path.isfile(sigmamag_percentile_path_NUV))
+    assert(os.path.isfile(sigmamag_path_FUV))
+    assert(os.path.isfile(sigmamag_percentile_path_FUV))
+
+    assert(os.path.isfile(csvname))
+    #Find source name from csvpath
+    csvpath = csvname
+    for i in range(len(csvpath)):
+        character = csvpath[i]
+        if character == 'c':
+            endidx=i-5
+            break
+    source = csvpath[0:endidx]
+
+    #Grab the band (also checks we have source csv)
+    if csvpath[-7] == 'N':
+        band = 'NUV'
+        band_other = 'FUV'
+    elif csvpath[-7] == 'F':
+        band = 'FUV'
+        band_other = 'NUV'
+    else:
+        print("Not source csv, skipping")
+        return
+    assert(band is not None)
+
+    bandcolors = {'NUV':'red', 'FUV':'blue'}
+    alldata = pd.read_csv(csvpath)
+    ###Alldata table corrections###
+    #Drop rows with > 10e10 in cps, cps_err, cps < .5
+    idx_high_cps = np.where( (alldata['cps_bgsub'] > 10e10) |
+            (alldata['cps_bgsub_err'] > 10e10) |
+            (alldata['counts'] < 1) |
+            (alldata['counts'] > 100000) |
+            (alldata['flux_bgsub'] < 0) |
+            (alldata['cps_bgsub'] < -10000) )[0]
+    if len(idx_high_cps) != 0:
+        alldata = alldata.drop(index = idx_high_cps)
+        alldata = alldata.reset_index(drop=True)
+
+    #Fix rows with incorrecct t_means by averaging t0 and t1
+    idx_tmean_fix = np.where( (alldata['t_mean'] < 1) |
+            (alldata['t_mean'] > alldata['t1']) |
+            (np.isnan(alldata['t_mean'])) )[0]
+
+    for idx in idx_tmean_fix:
+        t0 = alldata['t0'][idx]
+        t1 = alldata['t1'][idx]
+        mean = (t1 + t0) / 2.0
+        alldata['t_mean'][idx] = mean
+
+    ###Apparent Magnitude### - could also be done using conversion from flux
+    m_ab = np.nanmedian(alldata['mag_bgsub'])
+    #sigma_mag_all = np.nanstd( (alldata['mag_bgsub_err_1']
+            #+ alldata['mag_bgsub_err_2'])/2.0 )
+    sigma_mag_all = np.nanstd(alldata['mag_bgsub'])
+    magdic = {"mag":[m_ab], "sigma":[sigma_mag_all], "weight":[1]}
+
+    #Read in mag percentile information
+    if band == 'NUV':
+        percentile_df = pd.read_csv(sigmamag_percentile_path_NUV)
+    else:
+        assert(band == 'FUV')
+        percentile_df = pd.read_csv(sigmamag_percentile_path_FUV)
+
+
+    fig, ax = plt.subplots(1,1,figsize=(8,4))
+    if band == 'NUV':
+        df_sigmamag = pd.read_csv(sigmamag_path_NUV)
+    else:
+        assert(band == 'FUV')
+        df_sigmamag = pd.read_csv(sigmamag_path_FUV)
+    
+    
+    #Pull values, weights
+    allmags = df_sigmamag['m_ab']
+    allsigma = df_sigmamag['sigma_m']
+    df_alphas = df_sigmamag['weight']
+    rgb_1 = np.zeros((len(df_alphas),4))
+    rgb_1[:,3] = df_alphas
+    #Create magnitude bins using np.digitize
+    ax.scatter(allmags,allsigma,color=rgb_1, zorder=1, s=5)
+
+    #Get information from magdic
+    sourcemags = np.array(magdic['mag'])
+    sourcesigmas =np.array(magdic['sigma'])
+    sourcealphas = np.array(magdic['weight'])
+    #Make lists for arrow points (above .3 sigma)
+    arrow_mag = []
+    arrow_sigma = []
+    arrow_alpha = []
+    idx_arrow = np.where(sourcesigmas > .3)[0]
+    for idx in idx_arrow:
+        arrow_mag.append(sourcemags[idx])
+        arrow_sigma.append(.29)
+        arrow_alpha.append(sourcealphas[idx])
+
+    #Drop these indicies from the source arrays
+    sourcemags = np.delete(sourcemags, idx_arrow)
+    sourcesigmas = np.delete(sourcesigmas, idx_arrow)
+    sourcealphas = np.delete(sourcealphas, idx_arrow)
+
+    #Make color code information
+    rgb_2 = np.zeros((len(sourcealphas), 4))
+    rgb_2[:,0] = 1.0
+    rgb_2[:,3] = sourcealphas
+
+    rgb_arrow = np.zeros((len(arrow_alpha),4))
+    rgb_arrow[:,0] = .3
+    rgb_arrow[:,1] = .7
+    rgb_arrow[:,2] = 1.0
+    rgb_arrow[:,3] = arrow_alpha
+
+    ax.scatter(sourcemags, sourcesigmas, color=rgb_2, zorder=2)
+    ax.scatter(arrow_mag, arrow_sigma, color=rgb_arrow, 
+                  marker="^", zorder=3)
+    #ax.set_xlabel("NUV (mag)", fontsize=20)
+    #ax.set_ylabel("RMS", fontsize=20)
+    ax.set_ylim(ymin=-.02, ymax=.35)
+    ax.set_xlim(xmin=13, xmax=21)
+    ax.minorticks_on()
+    ax.tick_params(direction='in', which='both', labelsize=15)
+    ax.yaxis.set_ticks_position('both')
+    ax.xaxis.set_ticks_position('both')
+    ax.tick_params('both', length=8, width=1.8, which='major')
+    ax.tick_params('both', length=4, width=1, which='minor')
+    fig.savefig("/home/dmrowan/WhiteDwarfs/InterestingSources/exampleRMS.pdf")
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument("--showplot", help= "Display the plot after running", default=False, action='store_true')
-    parser.add_argument("--percentile", help="Use existing csv to grab fit information, generate new csv", default=False, action='store_true')
+    parser.add_argument(
+            "--showplot", 
+            help= "Display the plot after running", 
+            default=False, action='store_true')
+    parser.add_argument("--percentile", 
+            help="Use existing csv to grab fit information, generate new csv", 
+            default=False, action='store_true')
     args= parser.parse_args()
 
     if args.percentile:
         percentile(args.showplot)
     else:
         main()
+
+    #pick('Gaia-DR2-1009242620785138688-FUV.csv')
