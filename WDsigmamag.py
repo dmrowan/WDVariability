@@ -44,14 +44,7 @@ def main():
             alldata = pd.read_csv(filename)
 
             #Drop rows with counts issues, badflags, low expt
-            idx_high_cps = np.where( (abs(alldata['cps_bgsub']) > 10e10) | (alldata['cps_bgsub_err'] > 10e10) | (alldata['counts'] < 1) | (alldata['counts'] > 100000) )[0]
-            idx_flags_bool = [ WDutils.badflag_bool(x) for x in alldata['flags'] ]
-            idx_flags = np.where(np.array(idx_flags_bool) == True)[0]
-            idx_expt = np.where(alldata['exptime'] < 10)[0]
-            idx_to_drop = np.unique(np.concatenate([idx_high_cps, idx_flags, idx_expt]))
-            if len(idx_to_drop) != 0:
-                alldata = alldata.drop(index = idx_flags)
-                alldata = alldata.reset_index(drop=True)
+            alldata = WDutils.df_fullreduce(alldata)
 
             #Get total magnitude average
             m_ab_all = np.nanmedian(alldata['mag_bgsub'])
@@ -75,12 +68,14 @@ def main():
     #Drop rows where there is no mean/sigma or 0 sigma
     output_df_NUV = pd.DataFrame(output_dic_NUV)
     dropnull_NUV = np.where( (output_df_NUV['m_ab'].isnull()) | (output_df_NUV['sigma_m'].isnull()) | (output_df_NUV['sigma_m']==0) )[0]
+    print(len(dropnull_NUV))
     output_df_NUV = output_df_NUV.drop(index=dropnull_NUV)
     output_df_NUV.to_csv("Catalog/SigmaMag_NUV.csv", index=False)
 
     
     output_df_FUV = pd.DataFrame(output_dic_FUV)
     dropnull_FUV = np.where( (output_df_FUV['m_ab'].isnull()) | (output_df_FUV['sigma_m'].isnull()) | (output_df_FUV['sigma_m']==0) )[0]
+    print(len(dropnull_FUV))
     output_df_FUV = output_df_FUV.drop(index=dropnull_FUV)
     output_df_FUV.to_csv("Catalog/SigmaMag_FUV.csv", index=False)
 
@@ -159,7 +154,6 @@ def percentile(showplot):
             if input_df_FUV_reduced['m_ab'][i] >= magbins_FUV[mag_i_FUV + 1]:
                 breaks_FUV.append(i)
                 mag_i_FUV += 1
-    print(len(magbins_FUV), len(breaks_FUV))
     data_FUV = np.split(input_df_FUV_reduced, breaks_FUV)
     percentile50_FUV = []
     percentilelower_FUV = []
@@ -170,7 +164,6 @@ def percentile(showplot):
         percentile50_FUV.append(np.percentile(df['sigma_m'], 50))
         percentilelower_FUV.append(np.percentile(df['sigma_m'],lowerbound))
         percentileupper_FUV.append(np.percentile(df['sigma_m'], upperbound))
-    print(len(percentile50_FUV))
 
     #Bin by magnitude NUV
     breaks_NUV = []
@@ -209,24 +202,14 @@ def percentile(showplot):
         gs1.update(hspace=0)
         ax0 = plt.subplot(gs1[0])
         ax1 = plt.subplot(gs1[1])
-        ax0.minorticks_on()
-        ax0.tick_params(direction='in', which='both', labelsize=15)
-        ax0.yaxis.set_ticks_position('both')
-        ax0.xaxis.set_ticks_position('both')
-        ax0.set_xticklabels([])
-        ax0.tick_params('both', length=8, width=1.8, which='major')
-        ax0.tick_params('both', length=4, width=1, which='minor')
+        ax0 = WDutils.plotparams(ax0)
         ax0.scatter(input_df_NUV_sorted['m_ab'], input_df_NUV_sorted['sigma_m'], color='gray', s=2, zorder=1, label='_nolegend_', alpha=.5)
-        for axis in ['top', 'bottom', 'left', 'right']:
-            ax0.spines[axis].set_linewidth(1.5)
 
         myeffect = withStroke(foreground="k", linewidth=1.5)
         txtkwargs = dict(path_effects=[myeffect])
         myeffectw = withStroke(foreground="black", linewidth=2)
         txtkwargsw = dict(path_effects=[myeffectw])
 
-        #ax0.plot(magbins_NUV, percentile50_NUV, color='blue', zorder=2, linewidth=2, label='50 percentile', alpha=.75)
-        #ax[0].plot(magbins_NUV, percentileupper_NUV, color='blue', zorder=2, linewidth=2, ls='--', label=str(upperbound)+" percentile", alpha=.75)
         for i in range(len(df_IS['MainID'])):
             if df_IS['type'][i] == 'Pulsator':
                 typecolor = 'xkcd:red'
@@ -237,10 +220,13 @@ def percentile(showplot):
             
             labelnum = df_IS['labelnum'][i]
 
-            #ax0.scatter(df_IS['m_ab_NUV'][i], df_IS['sigma_m_NUV'][i], c=typecolor, s=100, label='_nolegend_')
-            #ax0.annotate(str(labelnum), (df_IS['m_ab_NUV'][i], df_IS['sigma_m_NUV'][i]), fontsize=12.5)
-            if (df_IS['sigma_m_NUV'][i] < .355) and (df_IS['m_ab_NUV'][i] < 21.25):
-                ax0.text(df_IS['m_ab_NUV'][i], df_IS['sigma_m_NUV'][i], str(labelnum),  horizontalalignment='center', verticalalignment='center', weight='normal', fontsize=12.5, **txtkwargsw, zorder=4, color=typecolor)
+            if ((df_IS['sigma_m_NUV'][i] < .355) 
+                    and (df_IS['m_ab_NUV'][i] < 21.25)):
+                ax0.text(df_IS['m_ab_NUV'][i], df_IS['sigma_m_NUV'][i], 
+                         str(labelnum),  horizontalalignment='center', 
+                         verticalalignment='center', weight='normal', 
+                         fontsize=12.5, **txtkwargsw, zorder=4, 
+                         color=typecolor)
 
 
         ax0.scatter(x=0, y=0, c='xkcd:red', s=100, label='New Pulsator')
@@ -287,8 +273,8 @@ def percentile(showplot):
             
             labelnum = df_IS['labelnum'][i]
 
-            #if (df_IS['sigma_m_FUV'][i] < .405) and (df_IS['m_ab_FUV'][i] < 21.25):
-                #ax1.text(df_IS['m_ab_FUV'][i], df_IS['sigma_m_FUV'][i], str(labelnum),  horizontalalignment='center', verticalalignment='center', weight='normal', fontsize=12.5, **txtkwargsw, zorder=4, color=typecolor)
+            if (df_IS['sigma_m_FUV'][i] < .405) and (df_IS['m_ab_FUV'][i] < 21.25):
+                ax1.text(df_IS['m_ab_FUV'][i], df_IS['sigma_m_FUV'][i], str(labelnum),  horizontalalignment='center', verticalalignment='center', weight='normal', fontsize=12.5, **txtkwargsw, zorder=4, color=typecolor)
 
         ax1.scatter(x=0, y=0, c='xkcd:red', s=100, label='New Pulsator')
         ax1.scatter(x=0, y=0, c='xkcd:violet', s=100, label='Known Pulastor')
