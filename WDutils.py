@@ -1,6 +1,7 @@
 from __future__ import print_function, division, absolute_import
 # Third party imports
 from astropy.coordinates import Angle
+from astropy.stats import LombScargle
 from astropy import units as u
 import collections
 import numpy as np
@@ -484,7 +485,7 @@ def tohms(ra=0, dec=0, fancy=False):
         r_string = "{0}{1}{2}".format(r_hours, r_minutes, r_seconds)
         #Negative dec case
         if dec1.dms.d < 0:
-            d_degrees = str(int(dec1.dms.d))
+            d_degrees = str(int(-1*dec1.dms.d))
             if abs(dec1.dms.d) < 10:
                 d_degrees = '0'+d_degrees
 
@@ -497,7 +498,7 @@ def tohms(ra=0, dec=0, fancy=False):
             else:
                 d_seconds = str(round(-1*dec1.dms.s, 2))
 
-            d_string = "{0}{1}{2}".format(d_degrees, d_minutes, d_seconds)
+            d_string = r'$-{0}{1}{2}$'.format(d_degrees, d_minutes, d_seconds)
         else:
             d_degrees = str(int(dec1.dms.d))
             if abs(dec1.dms.d) < 10:
@@ -511,7 +512,7 @@ def tohms(ra=0, dec=0, fancy=False):
                 d_seconds = '0' + str(round(dec1.dms.s, 2))
             else:
                 d_seconds = str(round(dec1.dms.s, 2))
-            d_string = "+{0}{1}{2}".format(d_degrees, d_minutes, d_seconds)
+            d_string = r'$+{0}{1}{2}$'.format(d_degrees, d_minutes, d_seconds)
         return r_string+d_string
 #----------------------------------------------------------------------------
 
@@ -537,7 +538,7 @@ def plotASASSN_LC(ax, asassn_name):
     ASASSN_mag_V = ASASSN_output_V[1]
     ASASSN_mag_err_V = ASASSN_output_V[2]
 
-    ASASSN_output_g = WDutils.readASASSN(
+    ASASSN_output_g = readASASSN(
             '../ASASSNphot_2/'+asassn_name+'_g.dat')
     ASASSN_JD_g = ASASSN_output_g[0]
     ASASSN_mag_g = ASASSN_output_g[1]
@@ -569,7 +570,7 @@ def plotASASSN_LC(ax, asassn_name):
 
     ax.set_xlabel('JD')
     ax.set_ylabel("V Magnitude")
-    ax.title('ASASSN LC')
+    ax.set_title('ASASSN LC')
     ax.legend()
 
     return ax
@@ -596,7 +597,7 @@ def plotASASSN_pgram(ax, asassn_name):
     ASASSN_mag_V = ASASSN_output_V[1]
     ASASSN_mag_err_V = ASASSN_output_V[2]
 
-    ASASSN_output_g = WDutils.readASASSN(
+    ASASSN_output_g = readASASSN(
             '../ASASSNphot_2/'+asassn_name+'_g.dat')
     ASASSN_JD_g = ASASSN_output_g[0]
     ASASSN_mag_g = ASASSN_output_g[1]
@@ -632,22 +633,24 @@ def plotASASSN_pgram(ax, asassn_name):
                         ASASSN_mag_err_V[breaksASN_V[i-1]:breaksASN_V[i]])
 
         length_V_list = [ len(l) for l in Vgroups_JD ]
-        idx_Vlongest = np.where(np.array(length_V_list)
-                                == max(length_V_list))[0][0]
-        ASASSN_pgramV_JD = Vgroups_JD[idx_Vlongest]
-        ASASSN_pgramV_mag = Vgroups_mag[idx_Vlongest]
-        ASASSN_pgramV_err = Vgroups_mag_err[idx_Vlongest]
+        if len(length_V_list) > 0:
 
-        #Generate LS periodogram
-        lsV = LombScargle(ASASSN_pgramV_JD,
-                          ASASSN_pgramV_mag,
-                          dy=ASASSN_pgramV_err)
-        freqV, ampV = lsV.autopower(nyquist_factor=1)
-        ax.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
-        ax.set_xlim(xmax=(1/30))
-        ax.set_axhline(y=lsV.false_alarm_level(.1),
-                    color='blue', alpha=.5,
-                    ls='--', label='.1 fal')
+            idx_Vlongest = np.where(np.array(length_V_list)
+                                    == max(length_V_list))[0][0]
+            ASASSN_pgramV_JD = Vgroups_JD[idx_Vlongest]
+            ASASSN_pgramV_mag = Vgroups_mag[idx_Vlongest]
+            ASASSN_pgramV_err = Vgroups_mag_err[idx_Vlongest]
+
+            #Generate LS periodogram
+            lsV = LombScargle(ASASSN_pgramV_JD,
+                              ASASSN_pgramV_mag,
+                              dy=ASASSN_pgramV_err)
+            freqV, ampV = lsV.autopower(nyquist_factor=1)
+            ax.plot(freqV, ampV, color='blue', label='V mag', zorder=2)
+            ax.set_xlim(xmax=(1/30))
+            ax.axhline(y=lsV.false_alarm_level(.1),
+                        color='blue', alpha=.5,
+                        ls='--', label='.1 fal')
     if len(ASASSN_JD_g) > 5:
         lsg = LombScargle(ASASSN_JD_g,
                           ASASSN_mag_g, dy=ASASSN_mag_err_g)
@@ -664,3 +667,16 @@ def plotASASSN_pgram(ax, asassn_name):
 
     return ax
 #----------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------
+def flux_to_mag(band, flux):
+    assert(band in ['NUV', 'FUV'])
+    if band == 'NUV':
+        pivot_wavelength = 2297 #angstroms
+    else:
+        pivot_wavelength = 1524 #angstroms
+    #Convert to flux per frequency in Jy
+    fv = 3.34e4*(pivot_wavelength)**2 * flux
+    #Calculate ab magnitude
+    m_ab = -2.5*np.log10(fv) + 8.90
+    return m_ab
