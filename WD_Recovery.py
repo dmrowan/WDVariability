@@ -2,6 +2,7 @@
 from __future__ import print_function, division, absolute_import
 import argparse
 from astropy.stats import LombScargle
+from astropy.stats import median_absolute_deviation
 from astropy.time import Time
 import collections
 #from gPhoton import gphoton_utils
@@ -49,6 +50,11 @@ def calculate_jd(galex_time):
 
     return this_jd_time
 
+def FindCutoff(percentile):
+    assert(os.path.isfile('AllData.csv'))
+    df = pd.read_csv('AllData.csv')
+    cutoff = np.percentile(df['BestRank'], percentile)
+    return cutoff
 
 #Define a class for a galex visit df
 class Visit:
@@ -60,10 +66,19 @@ class Visit:
         self.mag = mag
         self.FUVfilename = filename.replace('NUV', 'FUV')
         self.cEXP()
+        self.original_median = self.flux_median()
 
     def cEXP(self):
         tup = WDranker_2.find_cEXP(self.df)
         self.c_exposure = tup.c_exposure
+
+    #Need this for when we revert relative scales
+    def flux_median(self):
+        df_reduced = WDutils.df_fullreduce(self.df)
+        allflux = df_reduced['flux_bgsub']
+        median = np.nanmedian(allflux)
+        return median
+        
 
     #Simple check if we have enough usable data
     def good_df(self):
@@ -166,8 +181,9 @@ class Visit:
         if plot:
             fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8, 6))
             ax0.errorbar(t_mean, flux, yerr=flux_err, color='red')
-            ax0.errorbar(t_mean_FUV, flux_FUV, 
-                         yerr=flux_err_FUV, color='blue')
+            if exists:
+                ax0.errorbar(self.t_mean_FUV, flux_FUV, 
+                             yerr=flux_err_FUV, color='blue')
             ax0.axhline(np.median(flux), color='black', ls='--')
             ax0.set_title("Original LC")
             ax0 = WDutils.plotparams(ax0)
@@ -181,26 +197,23 @@ class Visit:
                                  df_optical['flux'])
 
         if exists:
-            optical_flux_FUV = np.interp(t_mean_FUV, df_optical['time'],
+            optical_flux_FUV = np.interp(self.t_mean_FUV, df_optical['time'],
                                          df_optical['flux'])
 
         #Scale by multiplicative factor
-        optical_flux = optical_flux * mf
-        optical_flux = optical_flux / np.median(optical_flux)
+        optical_flux = [ (o - 1)*mf + 1 for o in optical_flux ]
         flux_injected = [ flux[i] * optical_flux[i] 
                               for i in range(len(flux)) ]
 
         #Put back into df
         self.df.loc[:, 'flux_bgsub'] = flux_injected
-        self.df.loc[:, 'flux_bgsub_err'] = flux_err / np.sqrt(mf)
+        self.df.loc[:, 'flux_bgsub_err'] = flux_err 
 
         #Do the same for the FUV
         if exists:
-            optical_flux_FUV = optical_flux * mf
-            optical_flux_FUV = optical_flux / np.median(optical_flux)
             flux_injected_FUV = [ flux_FUV[i] * optical_flux_FUV[i]
                                     for i in range(len(flux_FUV)) ]
-            flux_err_FUV = flux_err_FUV / np.sqrt(mf)
+            flux_err_FUV = flux_err_FUV
             self.flux_injected_FUV = flux_injected_FUV
             self.flux_err_FUV = flux_err_FUV
 
@@ -247,6 +260,7 @@ class Visit:
         #Return 0,1 rseult of recovery
         c_periodogram = pgram_tup.c
         ditherperiod_exists = pgram_tup.ditherperiod_exists
+        
         '''
         if (not ditherperiod_exists) and (c_periodogram > 0):
             return 1
@@ -263,12 +277,37 @@ class Visit:
                                        ditherperiod_exists, self.FUVexists())
         else:
             c_ws = WDranker_2.find_cWS(self.t_mean, None,
-                                       self.flux_injected, None
+                                       self.flux_injected, None,
                                        self.flux_err, None,
                                        ditherperiod_exists, self.FUVexists())
 
-        #RMS Metric
+        #RMS Metric --- have to 'unscale' the magnitudes
+        converted_flux = [ f*self.original_median 
+                           for f in self.flux_injected ]
+        injectedmags = [ WDutils.flux_to_mag('NUV', f) 
+                         for f in converted_flux ]
+        print(np.nanmean(injectedmags))
+        sigma_mag = median_absolute_deviation(injectedmags)
         c_magfit = WDranker_2.find_cRMS(self.mag, sigma_mag, 'NUV')
+
+        #Weights:
+        w_pgram = 1
+        w_expt = .2
+        w_WS = .3
+        w_magfit = .25
+
+        C = ((w_pgram * c_periodogram) 
+            + (w_expt * self.c_exposure) 
+            + (w_magfit * c_magfit) 
+            + (w_WS * c_ws))
+
+        cutoff = FindCutoff(95)
+        print("Rank --- ", C, "Cutoff --- ", cutoff)
+
+        if C > cutoff:
+            return 1
+        else:
+            return 0
 
     #See if we have an exisiting period
     def existingperiods(self):
@@ -351,7 +390,6 @@ def selectLC(binvalue, binsize, mag_array, path_array):
     idx_bin = np.where( (mag_array >= binvalue)
                        &(mag_array < binupper) )[0]
     filename = np.random.choice(path_array[idx_bin])
-    #print(filename)
     
     #Standard data reduction procedure
     assert(os.path.isfile(filename))
@@ -396,7 +434,7 @@ def selectOptical(opticalLC, plot=True, exposure=30):
     idx_high = np.where(opticalLC['time'] > maxtime-exphalf)[0][0]
     idx_center = np.arange(idx_low, idx_high, 1)
     time_center = np.random.choice(opticalLC['time'][idx_center])
-
+    time_center = 179
     df_optical = opticalLC[(opticalLC['time'] > time_center-exphalf) 
                           &(opticalLC['time'] < time_center+exphalf)]
     df_optical = df_optical.reset_index(drop=True)
@@ -419,8 +457,7 @@ def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
     visit, source_mag = selectLC(mag, bs, mag_array, path_array)
 
     #Select a multiplicative factor
-    #mf = random.random() * 2
-    mf = random.random() + 1
+    mf = random.random() * 2
     mf = round(mf, 3) 
     visit.inject(opticalLC, mf)
     result = visit.assessrecovery()
@@ -616,10 +653,41 @@ if __name__ == '__main__':
     mag_array = MagList[0]
     path_array = MagList[1]
 
-    if args.test:
-        testfunction_wrapper(path_array, args.output, args.p)
-    elif args.plot is not None:
-        plot(args.plot, args.ml, args.mu, args.bs)
-    else:
-        wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
-                args.mu, args.bs, args.p, args.output, args.v)
+    #if args.test:
+    #    testfunction_wrapper(path_array, args.output, args.p)
+    #elif args.plot is not None:
+    #    plot(args.plot, args.ml, args.mu, args.bs)
+    #else:
+    #    wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
+    #            args.mu, args.bs, args.p, args.output, args.v)
+
+    #Select a visit
+    filename = 'WD-1155+594-NUV.csv'
+    usecols = ['t0', 't1', 't_mean',
+               'mag_bgsub',
+               'cps_bgsub', 'cps_bgsub_err', 'counts',
+               'flux_bgsub', 'flux_bgsub_err',
+               'detrad', 'flags', 'exptime']
+    alldata = pd.read_csv(filename, usecols=usecols)
+    alldata = WDutils.df_reduce(alldata)
+    alldata = WDutils.tmean_correction(alldata)
+    data = WDutils.dfsplit(alldata, 100)
+    source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
+    visit_list = []
+    for df in data:
+        visit = Visit(df, filename, source_mag)
+        if visit.good_df() == True: 
+            if visit.existingperiods() == False:
+                visit_list.append(visit)
+
+    vist = visit_list[0]
+    mf = .45
+    visit.inject(opticalLC, mf)
+    result = visit.assessrecovery()
+    tup = (source_mag, mf, result)
+    #Generate output string
+    outputstr = (str(source_mag)+","
+                +str(mf)+","
+                +str(result))
+
+    print(outputstr)
