@@ -532,10 +532,7 @@ def main(csvname,
             gs.GridSpec(4,4)
             fig.tight_layout(rect=[0, 0.03, 1, 0.95])
             fig.suptitle(
-                    "Exposure group {0} with {1}s \nRanking: "
-                    +"{2} {3} significant peaks".format(
-                        str(df_number), str(exposure), 
-                        str(C), str(len(sspeaks))))
+                    "Exposure group {0} with {1}s \nRanking: {2} {3} significant peaks".format( str(df_number), str(exposure), str(C), str(len(sspeaks))))
 
             #Subplot for LC
             plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
@@ -614,9 +611,10 @@ def main(csvname,
             
             #ax[0][1].axvline(x=nyquistfreq, color='r', ls='--')
             for level in [.05]:
-                ax.axhline(level, color='black', alpha = .5, 
-                            ls = '--', label = 'FAP: '+str(level))
-            ax.axhline(.25, color='black', alpha=.5, 
+                ax.axhline(ls.false_alarm_level(level), 
+                           color='black', alpha = .5, 
+                           ls = '--', label = 'FAP: '+str(level))
+            ax.axhline(ls.false_alarm_level(.25), color='black', alpha=.5, 
                         ls=':', label = 'FAP: '+str(.25))
 
             ax.legend()
