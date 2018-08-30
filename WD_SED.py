@@ -286,14 +286,19 @@ class WDSED:
         wavelength_cm_all = self.df_all['wavelength'] * 1e-8
         flux = self.df_nonIR['flux']
         #Initial conditions and bounds
+        if self.source == 'US-1639':
+            print(self.Teff)
+            self.Teff = self.Teff + 3000
         p0 = [5e-13, self.Teff]
         if not self.gentileexists:
             bounds = ([5e-17, 8000], [1e-11, 15000])
         else:
-            bounds = ([5e-17, self.Teff-100], [1e-11, self.Teff+100])
+            bounds = ([5e-17, self.Teff-400], [1e-11, self.Teff+400])
         #Scipy curve fit
         popt, pcov = curve_fit(blackbody, wavelength_cm, flux, 
                                p0=p0, bounds=bounds)
+        if self.source == 'US-1639':
+            print(popt)
         #Plot fit
         xvals = np.linspace(min(wavelength_cm_all), 
                             max(wavelength_cm_all), 250)
@@ -698,39 +703,47 @@ def CutoutPlot():
     afont = {'fontname':'Keraleeyam'}
 
    
+    
     fig, (ax0, ax1) = plt.subplots(2, 2, figsize=(100, 100))
     plt.subplots_adjust(hspace=0, wspace=-0.013)
     #plt.subplots_adjust(top=.98, right=.98, bottom=.05)
-    for f, p, ax in zip([f1, f2], [path1, path2], [ax0[0], ax1[0]]):
+    filters = [r'$y$', r'$y$', '$W1$','$W1$']
+    for f, p, ax, b in zip([f1, f2, f1, f2], 
+                           [path1, path2, wpath1, wpath2], 
+                           [ax0[0], ax1[0], ax0[1], ax1[1]],
+                           filters):
         idx_IS = np.where(df['MainID'] == f)[0][0]
         labelnum = df['labelnum'][idx_IS]
         ax.imshow(mpimg.imread(p))
+        minx, maxx = ax.get_xlim()
+        center = (minx+maxx)/2
+        ax.set_xlim(center-700, center+700)
+        miny, maxy = ax.get_ylim()
+        centery = (miny+maxy)/2 
+        ax.set_ylim(centery+700, centery-700)
         ax.annotate(str(labelnum), xy=(.9, .9), 
                      xycoords='axes fraction', color='xkcd:red', 
                      fontsize=200, ha='center', va='center', 
                      **afont, **txtkwargsw)
-        currentmin = ax.get_xlim()[0]
-        currentmax = ax.get_xlim()[1]
-        center = np.mean([currentmin, currentmax])
-        xspan = 700
-        ax.set_xlim(xmin=center-xspan, xmax=center+xspan)
-        ycenter = 1150
-        yspan = 700
-        ax.set_ylim(ymin=ycenter+yspan, ymax=ycenter-yspan)
+        ax.annotate(b, xy=(.1, .9), 
+                    xycoords='axes fraction', color='xkcd:red',
+                    fontsize=200, ha='center', va='center',
+                    **afont, **txtkwargsw)
         ax.tick_params('both', labeltop=False, labelbottom=False, 
                        labelleft=False, labelright=False)
         for axis in ['top', 'bottom', 'left', 'right']:
             ax.spines[axis].set_linewidth(20)
             ax.spines[axis].set_color('gray')
 
-    ax0[0].scatter(center-1, ycenter+14, linewidths=20, 
-                edgecolors='darkblue', facecolors='none', s=1550000)
-    ax0[0].scatter(center-1, ycenter+14, linewidths=20, 
-                edgecolors='green', facecolors='none', s=6500000)
-    ax1[0].scatter(center-9, ycenter-8, linewidths=20, 
-                edgecolors='darkblue', facecolors='none', s=1550000)
-    ax1[0].scatter(center-9, ycenter-8, linewidths=20, 
-                edgecolors='green', facecolors='none', s=6500000)
+    '''
+    #ax0[0].scatter(center-1, ycenter+14, linewidths=20, 
+    #            edgecolors='darkblue', facecolors='none', s=1550000)
+    #ax0[0].scatter(center-1, ycenter+14, linewidths=20, 
+    #            edgecolors='green', facecolors='none', s=6500000)
+    #ax1[0].scatter(center-9, ycenter-8, linewidths=20, 
+    #            edgecolors='darkblue', facecolors='none', s=1550000)
+    #ax1[0].scatter(center-9, ycenter-8, linewidths=20, 
+    #            edgecolors='green', facecolors='none', s=6500000)
 
     ax0[1].imshow(mpimg.imread(wpath1))
     ax1[1].imshow(mpimg.imread(wpath2))
@@ -771,17 +784,23 @@ def CutoutPlot():
 
     fig.savefig('CutoutPlot.pdf')
     '''
-    fig, ax = plt.subplots(1, 1, figsize=(100, 100))
-    ax.imshow(mpimg.imread(wpath2))
-    center = 1395
-    xspan = 700
-    ax.set_xlim(xmin=center-xspan, xmax=center+xspan)
-    ycenter = 1190
-    yspan = 700
-    ax.set_ylim(ymin=ycenter+yspan, ymax=ycenter-yspan)
-    ax.axis('off')
+    #fig, ax = plt.subplots(1, 1, figsize=(100, 100))
+    #ax.imshow(mpimg.imread(wpath2))
+    #center = 1395
+    #xspan = 700
+    #ax.set_xlim(xmin=center-xspan, xmax=center+xspan)
+    #ycenter = 1190
+    #yspan = 700
+    #ax.set_ylim(ymin=ycenter+yspan, ymax=ycenter-yspan)
+    #ax.axis('off')
+    #minx, maxx = ax.get_xlim()
+    #center = (minx+maxx)/2
+    #ax.set_xlim(center-700, center+700)
+    #miny, maxy = ax.get_ylim()
+    #centery = (miny+maxy)/2 
+    #ax.set_ylim(centery+700, centery-700)
     fig.savefig('CutoutPlot.pdf')
-    '''
+    
     
 
 

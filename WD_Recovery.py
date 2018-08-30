@@ -159,7 +159,7 @@ class Visit:
             return None
 
     #Inject an optical lc and scale by multiplicative factor
-    def inject(self, opticalLC, mf, plot=True):
+    def inject(self, opticalLC, mf, plot=False):
         if self.timereset==False:
             self.reset_time()
 
@@ -211,9 +211,9 @@ class Visit:
 
         #Do the same for the FUV
         if exists:
+            optical_flux_FUV = [ (o -1)*mf + 1 for o in optical_flux_FUV ]
             flux_injected_FUV = [ flux_FUV[i] * optical_flux_FUV[i]
                                     for i in range(len(flux_FUV)) ]
-            flux_err_FUV = flux_err_FUV
             self.flux_injected_FUV = flux_injected_FUV
             self.flux_err_FUV = flux_err_FUV
 
@@ -286,7 +286,6 @@ class Visit:
                            for f in self.flux_injected ]
         injectedmags = [ WDutils.flux_to_mag('NUV', f) 
                          for f in converted_flux ]
-        print(np.nanmean(injectedmags))
         sigma_mag = median_absolute_deviation(injectedmags)
         c_magfit = WDranker_2.find_cRMS(self.mag, sigma_mag, 'NUV')
 
@@ -302,7 +301,7 @@ class Visit:
             + (w_WS * c_ws))
 
         cutoff = FindCutoff(95)
-        print("Rank --- ", C, "Cutoff --- ", cutoff)
+        #print("Rank --- ", C, "Cutoff --- ", cutoff)
 
         if C > cutoff:
             return 1
@@ -363,7 +362,6 @@ def genMagLists(plot=False):
                         path_list.append(filename)
                         break
     median = np.median(mag_list)
-    print(median)
 
     #Magnitude Histogram
     if plot:
@@ -426,7 +424,7 @@ def selectLC(binvalue, binsize, mag_array, path_array):
 
 
 #Select random observation and time chunk
-def selectOptical(opticalLC, plot=True, exposure=30):
+def selectOptical(opticalLC, plot=False, exposure=30):
     exphalf = exposure/2
     maxtime = max(opticalLC['time'])
     #Find idx range corresponding to exposure
@@ -434,7 +432,6 @@ def selectOptical(opticalLC, plot=True, exposure=30):
     idx_high = np.where(opticalLC['time'] > maxtime-exphalf)[0][0]
     idx_center = np.arange(idx_low, idx_high, 1)
     time_center = np.random.choice(opticalLC['time'][idx_center])
-    time_center = 179
     df_optical = opticalLC[(opticalLC['time'] > time_center-exphalf) 
                           &(opticalLC['time'] < time_center+exphalf)]
     df_optical = df_optical.reset_index(drop=True)
@@ -513,7 +510,7 @@ def testfunction(filename, output):
     source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
     visit_list = []
     for df in data:
-        visit = Visit(df)
+        visit = Visit(df, filename, source_mag)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
                 visit_list.append(visit)
@@ -526,8 +523,8 @@ def testfunction(filename, output):
             os.system("echo {0} >> {1}".format(outputstr, fname))
     else:
         for visit in visit_list:
-            mf = random.choice(np.arange(0, 2, .1))
-            mf = round(mf, 1) #np.arange has some odd behaviors
+            mf = random.random() * 2
+            mf = round(mf, 3) 
             try:
                 visit.inject(opticalLC, mf)
                 result = visit.assessrecovery()
@@ -653,15 +650,15 @@ if __name__ == '__main__':
     mag_array = MagList[0]
     path_array = MagList[1]
 
-    #if args.test:
-    #    testfunction_wrapper(path_array, args.output, args.p)
-    #elif args.plot is not None:
-    #    plot(args.plot, args.ml, args.mu, args.bs)
-    #else:
-    #    wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
-    #            args.mu, args.bs, args.p, args.output, args.v)
+    if args.test:
+        testfunction_wrapper(path_array, args.output, args.p)
+    elif args.plot is not None:
+        plot(args.plot, args.ml, args.mu, args.bs)
+    else:
+        wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
+                args.mu, args.bs, args.p, args.output, args.v)
 
-    #Select a visit
+    '''
     filename = 'WD-1155+594-NUV.csv'
     usecols = ['t0', 't1', 't_mean',
                'mag_bgsub',
@@ -691,3 +688,4 @@ if __name__ == '__main__':
                 +str(result))
 
     print(outputstr)
+    '''

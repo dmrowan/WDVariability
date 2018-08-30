@@ -112,7 +112,7 @@ def main(ppuls):
 
     ra_list_round = [ round(val,5) for val in ra_list ]
     dec_list_round = [ round(val,5) for val in dec_list ]
-    g_list = [ round(val, 1) for val in g_list ]
+    g_list = [ round(val, 2) for val in g_list ]
     #Query sigmamag csv's go get sigma m, m_ab, and our variability metric NUV
     metric_NUV= []
     sigma_list_NUV = []
@@ -217,7 +217,7 @@ def main(ppuls):
                       'SDSS-J212232.58-061839.7',
                       'SDSS-J220823.66-011534.1',
                       'SDSS-J234829.09-092500.9']:
-            spectral_type.append("DA+?")
+            spectral_type.append("D?+?")
         else:
             spectral_type.append("DAV")
 
@@ -258,10 +258,10 @@ def latextable():
     df = pd.read_csv("IS.csv")
     df_ref = pd.read_csv("references.csv")
     df_output = pd.DataFrame({
-            "MainID":df["MainID"],
-            "ID":df["labelnum"],
+            "Source":df["MainID"],
+            "ID\#":df["labelnum"],
             "RA":df["ra"],
-            "DEC":df["dec"],
+            "Dec.":df["dec"],
             "Gaia G":df["g"],
             #r'$c_{\sigma_{mag, NUV}}$': df['metric_NUV'],
             #r'$c_{\sigma_{mag, FUV}}$': df['metric_FUV'],
@@ -291,21 +291,21 @@ def latextable():
         elif df_output['Type'][i] == 'KnownPulsator':
             df_output.loc[i, 'Type'] = 'Known Pulsator'
 
-    for i in range(len(df_output['MainID'])):
-        if df_output['MainID'][i][:4] == 'Gaia':
+    for i in range(len(df_output['Source'])):
+        if df_output['Source'][i][:4] == 'Gaia':
             ra = df['ra_unrounded'][i]
             dec = df['dec_unrounded'][i]
             coordstring = WDutils.tohms(ra, dec, fancy=True)
-            df_output.loc[i, 'MainID'] = 'WD J'+coordstring
+            df_output.loc[i, 'Source'] = 'WD J'+coordstring
         else:
-            name = df_output['MainID'][i]
+            name = df_output['Source'][i]
             nhyphens = len(np.where(np.array(list(name)) == '-')[0])
             if ( (name[:3] =='CBS') or
                     (name[:2] == 'V*') or
                     (name[:5] == 'GALEX') or
                     (name[:2] == 'US' and name[:4] != 'USNO') or
                     (name[:2] == 'GD')):
-                df_output.loc[i, 'MainID'] = name.replace('-', ' ')
+                df_output.loc[i, 'Source'] = name.replace('-', ' ')
             elif ( (name[:3] == 'KUV') or
                     (name[:5] == '2MASS') or
                     (name[:2] == 'WD') or
@@ -313,18 +313,18 @@ def latextable():
                     (name[:2] == 'HE') or
                     (name[:4] == 'SDSS')):
                 if '+' in name:
-                    df_output.loc[i, 'MainID'] = name.replace(
+                    df_output.loc[i, 'Source'] = name.replace(
                             '-', ' ').replace('+', r'$+$')
                 else:
-                    df_output.loc[i, 'MainID'] = name.replace(
+                    df_output.loc[i, 'Source'] = name.replace(
                             '-', ' ', 1).replace('-', r'$-$')
             elif name[:4]=='USNO':
-                df_output.loc[i, 'MainID'] = name.replace(
+                df_output.loc[i, 'Source'] = name.replace(
                         '-', ' ', nhyphens-1)
             else:
-                df_output.loc[i, 'MainID'] = name
+                df_output.loc[i, 'Source'] = name
 
-    idx_cbs = np.where(df_output['MainID'] == 'CBS 130')[0][0]
+    idx_cbs = np.where(df_output['Source'] == 'CBS 130')[0][0]
     df_output.loc[idx_cbs, 'Gaia G'] = 16.56
     
     with open("IS_latextable.tex", 'w') as f:
@@ -335,7 +335,7 @@ def latextable():
         lines = f.readlines()
         f.close()
     
-    lines.insert(3, "& & (Deg) & (Deg) & (mag) & & & \\\ \n")
+    lines.insert(3, "& & (deg) & (deg) & (mag) & & & \\\ \n")
 
     with open("IS_latextable.tex", 'w') as f:
         contents = "".join(lines)
@@ -345,7 +345,7 @@ def latextable():
 def latex_known():
     df_ref = pd.read_csv("references.csv")
     df_output = pd.DataFrame({
-        "MainID":df_ref["MainID"],
+        "Source":df_ref["MainID"],
         "RA":df_ref["RA"],
         "DEC":df_ref["DEC"],
     })
@@ -362,22 +362,22 @@ def latex_known():
 
     ID = []
     df_IS = pd.read_csv("IS.csv")
-    for name in df_output['MainID']:
+    for name in df_output['Source']:
         idx_IS = np.where(df_IS['MainID'] == name)[0]
         idx_IS = idx_IS[0]
         ID.append(df_IS['labelnum'][idx_IS])
-    df_output['ID'] = ID
+    df_output['ID\#'] = ID
     
 
     idx_eclipse = []
-    for i in range(len(df_output['MainID'])):
+    for i in range(len(df_output['Source'])):
         if str(df_output['RA'][i]) == 'nan':
             idx_eclipse.append(i)
     df_output = df_output.drop(idx_eclipse)
     df_output = df_output.sort_values(by='RA')
     df_output = df_output.reset_index(drop=True)
 
-    df_output = df_output[['MainID', 'ID', 'Reference', 
+    df_output = df_output[['Source', 'ID\#', 'Reference', 
                            'Reported Pulsation Periods']]
 
     with open("IS_latextable_kp.tex", 'w') as f:
