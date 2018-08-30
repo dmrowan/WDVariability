@@ -358,7 +358,7 @@ def latex_known():
             references.append(latexcitation)
 
     df_output['Reference'] = references
-    df_output['Reported Pulsation Periods'] = df_ref['Pulsation Periods']
+    #df_output['Reported Pulsation Periods'] = df_ref['Pulsation Periods']
 
     ID = []
     df_IS = pd.read_csv("IS.csv")
@@ -377,8 +377,34 @@ def latex_known():
     df_output = df_output.sort_values(by='RA')
     df_output = df_output.reset_index(drop=True)
 
-    df_output = df_output[['Source', 'ID\#', 'Reference', 
-                           'Reported Pulsation Periods']]
+    for i in range(len(df_output['Source'])):
+        name = df_output['Source'][i]
+        nhyphens = len(np.where(np.array(list(name)) == '-')[0])
+        if ( (name[:3] =='CBS') or
+                (name[:2] == 'V*') or
+                (name[:5] == 'GALEX') or
+                (name[:2] == 'US' and name[:4] != 'USNO') or
+                (name[:2] == 'GD')):
+            df_output.loc[i, 'Source'] = name.replace('-', ' ')
+        elif ( (name[:3] == 'KUV') or
+                (name[:5] == '2MASS') or
+                (name[:2] == 'WD') or
+                (name[:2] == 'HS') or
+                (name[:2] == 'HE') or
+                (name[:4] == 'SDSS')):
+            if '+' in name:
+                df_output.loc[i, 'Source'] = name.replace(
+                        '-', ' ').replace('+', r'$+$')
+            else:
+                df_output.loc[i, 'Source'] = name.replace(
+                        '-', ' ', 1).replace('-', r'$-$')
+        elif name[:4]=='USNO':
+            df_output.loc[i, 'Source'] = name.replace(
+                    '-', ' ', nhyphens-1)
+        else:
+            df_output.loc[i, 'Source'] = name
+
+    df_output = df_output[['Source', 'ID\#', 'Reference']]
 
     with open("IS_latextable_kp.tex", 'w') as f:
         f.write(df_output.to_latex(index=False, escape=False))
@@ -388,7 +414,7 @@ def latex_known():
         lines = f.readlines()
         f.close()
 
-    lines.insert(3, "&  &  & (s) \\\ \n")
+    lines.insert(3, " &  & (s) \\\ \n")
 
     with open("IS_latextable_kp.tex", 'w') as f:
         contents = "".join(lines)
