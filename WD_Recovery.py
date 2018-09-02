@@ -5,8 +5,9 @@ from astropy.stats import LombScargle
 from astropy.stats import median_absolute_deviation
 from astropy.time import Time
 import collections
-#from gPhoton import gphoton_utils
+from gPhoton import gphoton_utils
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gs
 from matplotlib.ticker import MultipleLocator
 import multiprocessing as mp
 import numpy as np
@@ -16,6 +17,7 @@ import _pickle as pickle
 from progressbar import ProgressBar
 import random
 random.seed()
+import seaborn as sns
 import time
 import WDranker_2
 import WDutils
@@ -300,7 +302,8 @@ class Visit:
             + (w_magfit * c_magfit) 
             + (w_WS * c_ws))
 
-        cutoff = FindCutoff(95)
+        #cutoff = FindCutoff(95) 
+        cutoff = .665 #Don't waste time loading in alldata
         #print("Rank --- ", C, "Cutoff --- ", cutoff)
 
         if C > cutoff:
@@ -411,7 +414,6 @@ def selectLC(binvalue, binsize, mag_array, path_array):
             if visit.existingperiods() == False:
                 visit_list.append(visit)
 
-    print(filename)
     #If there were no good visits, pick a new source
     if len(visit_list) == 0:
         print(filename, "no sources in visit list")
@@ -552,7 +554,7 @@ def testfunction_wrapper(path_array, output, p):
     for job in jobs:
         job.get()
 
-def plot(fname, ml, mu, bs):
+def plot(fname, ml, mu, bs, magarray):
     assert(os.path.isfile(fname))
     with open(fname) as f:
         lines = f.readlines()
@@ -561,7 +563,7 @@ def plot(fname, ml, mu, bs):
     out = [[float(x.strip()) for x in line.split(',')][2] for line in lines]
 
     minbin=14
-    maxbin=23
+    maxbin=22
     bs = .1
     magbins = np.arange(minbin, maxbin+bs, bs)
     magbins = np.array([ round(b, 1) for b in magbins ])
@@ -586,31 +588,59 @@ def plot(fname, ml, mu, bs):
             if totalarray[x, y] == 0:
                 resultarray[x, y] = 0
             else:
-                resultarray[x,y] = recoveryarray[x,y] / totalarray[x,y]
-    #fig, (ax0, ax1, ax2) = plt.subplots(3, 1, figsize=(12, 12))
-    fig, ax0 = plt.subplots(1, 1, figsize=(12, 4))
-    #ax0.hist2d(plotmags, plotmf, bins=[magbins, mfbins], cmap='autumn')
-    ax0.imshow(resultarray.T, cmap='viridis', extent=(14, 23, 0, 2))
-    ax0.set_xlabel('NUV Magnitude (mag)', fontsize=25)
+                resultarray[x,y] = (recoveryarray[x,y] / 
+                                    totalarray[x,y]) * 100
+
+    fig = plt.figure(figsize=(12, 5))
+    gs1 = gs.GridSpec(3, 7)
+    plt.subplots_adjust(top=.98, right=.98, bottom = 0.25, 
+                        hspace=0, wspace=0)
+
+    plt.subplot2grid((3,7),(1,0), colspan=6, rowspan=2)
+    ax0 = plt.gca()
+    cax = ax0.imshow(np.flip(resultarray,1).T, cmap='viridis', 
+                     extent=(14,22,0,2), aspect='auto')
+    ax0.set_xlabel(r'$GALEX$'+' NUV (mag)', fontsize=25)
     ax0.set_ylabel('Scale Factor', fontsize=25)
-    ax0.set_xticks([x for x in np.arange(14, 23, 1)])
-
-    #ax0.xaxis.set_minor_locator(MultipleLocator(10))
+    ax0.set_xticks([x for x in np.arange(14, 22, 1)])
     ax0 = WDutils.plotparams(ax0)
-    
-    """
-    ax1 = WDutils.plotparams(ax1)
-    ax1.hist(mag, color='midnightblue', alpha=.75, bins=magbins,
-             linewidth=1.2, edgecolor='black')
+    ax0.xaxis.get_major_ticks()[0].set_visible(False)
+    p0 = ax0.get_position().get_points().flatten()
 
-    ax2 = WDutils.plotparams(ax2)
-    ax2.hist(mf, color='midnightblue', alpha=.75, bins=mfbins,
-             linewidth=1.2, edgecolor='black')
-    """
-    plt.tight_layout()
-    
+    plt.subplot2grid((3,7),(0,0),colspan=6, rowspan=1)
+    axM = plt.gca()
+    axM.bar(magbins+.05, resultarray.T.mean(axis=0), 
+            width=.1,color='#62CA5F', alpha=.8, edgecolor='black')
+    axM.set_xlim(xmin=14, xmax=22)
+    axM.xaxis.set_ticklabels([])
+    axM = WDutils.plotparams(axM)
+    axM.yaxis.tick_right()
+    axM.yaxis.get_major_ticks()[0].set_visible(False)
+    axM.spines['bottom'].set_linewidth(2)
+    axM.set_ylim(ymax=axM.get_ylim()[1]+5)
+    pM = axM.get_position().get_points().flatten()
+
+    plt.subplot2grid((3,7),(1,6),colspan=1, rowspan=2)
+    axS = plt.gca()
+    axS.barh(mfbins+.05,resultarray.mean(axis=0), 
+             height=.1,color='#62CA5F', alpha=.8, edgecolor='black')
+    axS.set_ylim(ymin=0, ymax=2)
+    axS.yaxis.set_ticklabels([])
+    axS = WDutils.plotparams(axS)
+    axS.xaxis.tick_top()
+    axS.xaxis.get_major_ticks()[0].set_visible(False)
+    axS.spines['left'].set_linewidth(2)
+    pS = axS.get_position().get_points().flatten()
+
+    cbaxes = fig.add_axes([p0[0], .05, p0[2]-p0[0], .05])
+    cb = plt.colorbar(cax, cbaxes, orientation='horizontal')
+
+    fig.text(.92, .94, "%\nRecovered", 
+             ha='center', va='center', color='black', fontsize=18)
     fig.savefig('RecoveryPlot.pdf')
 
+
+    
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
@@ -653,39 +683,7 @@ if __name__ == '__main__':
     if args.test:
         testfunction_wrapper(path_array, args.output, args.p)
     elif args.plot is not None:
-        plot(args.plot, args.ml, args.mu, args.bs)
+        plot(args.plot, args.ml, args.mu, args.bs, mag_array)
     else:
         wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
                 args.mu, args.bs, args.p, args.output, args.v)
-
-    '''
-    filename = 'WD-1155+594-NUV.csv'
-    usecols = ['t0', 't1', 't_mean',
-               'mag_bgsub',
-               'cps_bgsub', 'cps_bgsub_err', 'counts',
-               'flux_bgsub', 'flux_bgsub_err',
-               'detrad', 'flags', 'exptime']
-    alldata = pd.read_csv(filename, usecols=usecols)
-    alldata = WDutils.df_reduce(alldata)
-    alldata = WDutils.tmean_correction(alldata)
-    data = WDutils.dfsplit(alldata, 100)
-    source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
-    visit_list = []
-    for df in data:
-        visit = Visit(df, filename, source_mag)
-        if visit.good_df() == True: 
-            if visit.existingperiods() == False:
-                visit_list.append(visit)
-
-    vist = visit_list[0]
-    mf = .45
-    visit.inject(opticalLC, mf)
-    result = visit.assessrecovery()
-    tup = (source_mag, mf, result)
-    #Generate output string
-    outputstr = (str(source_mag)+","
-                +str(mf)+","
-                +str(result))
-
-    print(outputstr)
-    '''
