@@ -556,12 +556,14 @@ def testfunction_wrapper(path_array, output, p):
 
 def plot(fname, ml, mu, bs, magarray):
     assert(os.path.isfile(fname))
+    #Parse results
     with open(fname) as f:
         lines = f.readlines()
     mag = [[float(x.strip()) for x in line.split(',')][0] for line in lines]
     mf = [[float(x.strip()) for x in line.split(',')][1] for line in lines]
     out = [[float(x.strip()) for x in line.split(',')][2] for line in lines]
 
+    #Define our axes
     minbin=14
     maxbin=22
     bs = .1
@@ -571,6 +573,7 @@ def plot(fname, ml, mu, bs, magarray):
     mfbins = np.arange(0, 2, .1)
     mfbins = np.array([ round(b, 1) for b in mfbins ])
 
+    #Fill 2d numpy arrays 
     array2d = np.array([magbins, mfbins])
     totalarray = np.zeros((len(magbins), len(mfbins)))
     recoveryarray = np.zeros((len(magbins), len(mfbins)))
@@ -583,6 +586,7 @@ def plot(fname, ml, mu, bs, magarray):
         mfidx = np.where(array2d[1] <= mfval)[0].max()
         totalarray[magidx, mfidx] += 1
         recoveryarray[magidx, mfidx] += result
+    #Use recovery/total to calculate result
     for x in range(totalarray.shape[0]):
         for y in range(totalarray.shape[1]):
             if totalarray[x, y] == 0:
@@ -591,13 +595,16 @@ def plot(fname, ml, mu, bs, magarray):
                 resultarray[x,y] = (recoveryarray[x,y] / 
                                     totalarray[x,y]) * 100
 
+    #Gridspec plot
     fig = plt.figure(figsize=(12, 5))
     gs1 = gs.GridSpec(3, 7)
     plt.subplots_adjust(top=.98, right=.98, bottom = 0.25, 
                         hspace=0, wspace=0)
 
+    #Subplot for array
     plt.subplot2grid((3,7),(1,0), colspan=6, rowspan=2)
     ax0 = plt.gca()
+    #Use np.flip and T to set up axes correctly
     cax = ax0.imshow(np.flip(resultarray,1).T, cmap='viridis', 
                      extent=(14,22,0,2), aspect='auto')
     ax0.set_xlabel(r'$GALEX$'+' NUV (mag)', fontsize=25)
@@ -607,10 +614,25 @@ def plot(fname, ml, mu, bs, magarray):
     ax0.xaxis.get_major_ticks()[0].set_visible(False)
     p0 = ax0.get_position().get_points().flatten()
 
+    #Subplot for magnitude bar
     plt.subplot2grid((3,7),(0,0),colspan=6, rowspan=1)
     axM = plt.gca()
-    axM.bar(magbins+.05, resultarray.T.mean(axis=0), 
-            width=.1,color='#62CA5F', alpha=.8, edgecolor='black')
+    
+    colorlist = []
+    for i in range(len(magbins)):
+        meanval = resultarray.T.mean(axis=0)[i]
+        idx = (np.abs(resultarray.T[:,i]-meanval)).argmin()
+        colorlist.append(cax.cmap(cax.norm(np.flip(resultarray,1).T[-idx,i])))
+       
+    barlist = axM.bar(magbins+.05, resultarray.T.mean(axis=0), 
+                     width=.1, edgecolor='black')
+    for i in range(len(barlist)):
+        barlist[i].set_color(colorlist[i])
+    """
+    axM.bar(magbins+.05, resultarray.T.mean(axis=0),
+            width=.1, color='#62Ca5F', alpha=.8, edgecolor='black')
+    """
+
     axM.set_xlim(xmin=14, xmax=22)
     axM.xaxis.set_ticklabels([])
     axM = WDutils.plotparams(axM)
@@ -620,6 +642,7 @@ def plot(fname, ml, mu, bs, magarray):
     axM.set_ylim(ymax=axM.get_ylim()[1]+5)
     pM = axM.get_position().get_points().flatten()
 
+    #Subplot for scale factor bar
     plt.subplot2grid((3,7),(1,6),colspan=1, rowspan=2)
     axS = plt.gca()
     axS.barh(mfbins+.05,resultarray.mean(axis=0), 
@@ -632,6 +655,7 @@ def plot(fname, ml, mu, bs, magarray):
     axS.spines['left'].set_linewidth(2)
     pS = axS.get_position().get_points().flatten()
 
+    #Additional axes for colorbar
     cbaxes = fig.add_axes([p0[0], .05, p0[2]-p0[0], .05])
     cb = plt.colorbar(cax, cbaxes, orientation='horizontal')
 
