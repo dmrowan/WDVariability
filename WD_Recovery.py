@@ -7,6 +7,7 @@ from astropy.stats import LombScargle
 from astropy.stats import median_absolute_deviation
 from astropy.time import Time
 import collections
+import copy
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -53,9 +54,17 @@ def calculate_jd(galex_time):
 
     return this_jd_time
 
-def FindCutoff(percentile):
+def FindCutoff(path_array, percentile):
     assert(os.path.isfile('AllData.csv'))
     df = pd.read_csv('AllData.csv')
+    source_names = [ p[:-8] for p in path_array ]
+    idx_drop = []
+    for i in range(len(df['Band'])):
+        if ((df['Band'][i] == 'FUV') or 
+                (df['SourceName'][i] not in source_names)):
+            idx_drop.append(i)
+    print(len(idx_drop))
+    df = df.drop(index=idx_drop)
     cutoff = np.percentile(df['BestRank'], percentile)
     return cutoff
 
@@ -307,7 +316,7 @@ class Visit:
             + (w_WS * c_ws))
 
         #cutoff = FindCutoff(95) 
-        cutoff = .665 #Don't waste time loading in alldata
+        cutoff = .648 #Don't waste time loading in alldata
         #print("Rank --- ", C, "Cutoff --- ", cutoff)
 
         if C > cutoff:
@@ -458,14 +467,14 @@ def selectLC(binvalue, binsize, mag_array, path_array):
     #If there were no good visits, pick a new source
     if len(visit_list) == 0:
         print(filename, "no sources in visit list")
-        visit, source_mag = selectLC(binvalue, binsize, mag_array, path_array)
-        return visit, source_mag
+        visit, source_mag, filename, visit_i = selectLC(
+                binvalue, binsize, mag_array, path_array)
+        return visit, source_mag, filename, visit_i
     #Select random visit
     else:
-        print(filename)
         visit = random.choice(visit_list)
-        print(np.where(np.array(visit_list) == visit)[0])
-        return visit, source_mag
+        visit_i = np.where(np.array(visit_list) == visit)[0]
+        return visit, source_mag, filename, visit_i
 
 
 #Select random observation and time chunk
@@ -499,7 +508,8 @@ def selectOptical(opticalLC, plot=False, exposure=30, center=None):
 #Full injection procedure for single source
 def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
     #Select a visit
-    visit, source_mag = selectLC(mag, bs, mag_array, path_array)
+    visit, source_mag, filename, visit_i = selectLC(
+            mag, bs, mag_array, path_array)
 
     #Select a multiplicative factor
     mf = random.random() * 2
@@ -742,20 +752,73 @@ def RecoveryPlot(resultarray):
     fig.savefig('RecoveryPlot.pdf')
 
 #Comparison of different recovery scenarios
-def ComparisonPlot(fname, opticalLC):
-
+def ComparisonPlot(fname, opticalLC, double=True):
+    d_sources = {
+            'bright':{
+                '1':{ '1':[], '0':[]}, 
+                '0.5':{ '1':[], '0':[]}},
+            'medium':{
+                '1':{ '1':[], '0':[]}, 
+                '0.5':{ '1':[], '0':[]}},
+            'faint':{
+                '1':{ '1':[], '0':[]}, 
+                '0.5':{ '1':[], '0':[]}},
+            }
+    #Parse source list
     assert(os.path.isfile(fname))
     with open(fname) as f:
         lines = f.readlines()
-    brightsource = lines[0][:-1] #visit i=0
-    middlesource = lines[1][:-1] #visit i=2
-    faintsource = lines[2][:-1] #visit i=0
+    for l in lines:
+        if (l[0]=='#') or (len(l.split())==0):
+            continue
+        else:
+            ll = l.split()
+            mag = ll[0].replace(',', '')
+            mf = ll[1].replace(',', '')
+            rresult = ll[2].replace(',', '')
+            filepath = ll[3].replace(',','')
+            visit_i = int(ll[4])
+            if float(mag) < 17:
+                d_sources['bright'][mf][rresult].extend([filepath, visit_i])
+            elif float(mag) > 19.9:
+                d_sources['faint'][mf][rresult].extend([filepath, visit_i])
+            else:
+                d_sources['medium'][mf][rresult].extend([filepath, visit_i])
 
-    visit_list = []
+    
+    df_optical, unused = selectOptical(opticalLC, plot=False, 
+                                       exposure=30, center=185)
+
+    myeffectw = withStroke(foreground='black', linewidth=2)
+    txtkwargsw = dict(path_effects=[myeffectw])
+    afont = {'fontname':'Keraleeyam'}
+
+    if not double:
+        fig, ax = plt.subplots(4, 1, figsize=(6, 12))
+        axes_list = [ax[1], ax[2], ax[3]]
+        d_plotting = {'bright': d_sources['bright']['1']['1'], 
+                      'medium': d_sources['medium']['1']['1'],
+                      'faint': d_sources['faint']['1']['1']}
+    else:
+        fig, ax = plt.subplots(3, 1, figsize=(6, 9))
+        axes_list = [ax[1], ax[2]]
+        d_plotting = {'bright':d_sources['bright']['1']['1'],
+                      'medium':d_sources['medium']['1']['1']}
+
+    plt.subplots_adjust(top=.98, right=.98, bottom=.05, hspace=0)
+    fig.text(.6, .01, 'Time Elapsed (min)', fontsize=20, ha='center',
+             va='center')
+    fig.text(.03, .5, 'Normalized Flux', fontsize=20, 
+             ha='center', va='center', rotation=90)
+    ax[0].scatter(df_optical['time'], df_optical['flux'], 
+                      color='xkcd:violet', marker='o', s=10)
+
+
     mag_list = []
-    for sourcefile, i in zip([brightsource, middlesource, faintsource],
-                           [0,2,0]):
-        print(sourcefile)
+    axis_i = 0
+    for magkey in d_plotting.keys():
+        sourcefile = d_plotting[magkey][0]
+        visit_i = d_plotting[magkey][1]
         assert(os.path.isfile(sourcefile))
         usecols = ['t0', 't1', 't_mean',
                    'mag_bgsub',
@@ -768,7 +831,7 @@ def ComparisonPlot(fname, opticalLC):
         alldata = WDutils.tmean_correction(alldata)
         #Split into visits 
         data = WDutils.dfsplit(alldata, 100)
-        source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
+        source_mag = round(np.nanmedian(alldata['mag_bgsub']),2)
         mag_list.append(round(source_mag,1))
 
         good_list = []
@@ -778,106 +841,47 @@ def ComparisonPlot(fname, opticalLC):
             if vtemp.good_df() == True: 
                 if vtemp.existingperiods() == False:
                     good_list.append(j)
+
+        df = data[good_list[visit_i]]
+        visit = Visit(df, sourcefile, source_mag) 
+        visit_2 = Visit(df, sourcefile, source_mag)
+        visit.inject(opticalLC, 1, center=185)
+        visit_2.inject(opticalLC, .5, center=185)
         
-        #Select df
-        df = data[good_list[i]]
-        v0 = Visit(df, sourcefile, source_mag) #mf=1 recovered
-        v1 = Visit(df, sourcefile, source_mag) #mf=1 nonrecovered
-        v2 = Visit(df, sourcefile, source_mag) #mf=.25 recovered
-        v3 = Visit(df, sourcefile, source_mag) #mf=.25 nonrecovered
-        visit_list.append([v0, v1, v2, v3])
-
-    df_optical, unused = selectOptical(opticalLC, plot=False, 
-                                       exposure=30, center=185)
-
-    mflist = [1,1,.25,.25]
-
-    myeffectw = withStroke(foreground='black', linewidth=2)
-    txtkwargsw = dict(path_effects=[myeffectw])
-    afont = {'fontname':'Keraleeyam'}
-
-    fig = plt.figure(figsize=(12, 22))
-    gs_outer = gs.GridSpec(4, 1, height_ratios=[1,3,3,3], hspace=.15)
-    gs_optical = gs.GridSpecFromSubplotSpec(1,1, subplot_spec=gs_outer[0])
-    axOptical = plt.subplot(gs_optical[0])
-    axOptical.scatter(df_optical['time'], df_optical['flux'], 
-                      color='xkcd:violet', marker='.', s=20)
-    axOptical = WDutils.plotparams(axOptical)
-
-    gs1 = gs.GridSpecFromSubplotSpec(2,2, subplot_spec=gs_outer[1], 
-            hspace=0, wspace=0)
-    gs2 = gs.GridSpecFromSubplotSpec(2,2, subplot_spec=gs_outer[2],
-            hspace=0, wspace=0)
-    gs3 = gs.GridSpecFromSubplotSpec(2,2, subplot_spec=gs_outer[3],
-            hspace=0, wspace=0)
-
-    plt.subplots_adjust(top=.98, right=.98, bottom=.05)
-
-    gs_list = [gs1, gs2, gs3]
-    for i in range(len(visit_list)):
-        gs_c = gs_list[i]
-        use_ylabel = True
-        for ii in range(len(visit_list[i])):
-            mf = mflist[ii]
-            visit = visit_list[i][ii]
-            visit.inject(opticalLC, mf, center=185)
-            
-            ax_c = plt.subplot(gs_c[ii])
-            ax_c.errorbar(visit.t_mean, visit.flux_injected, 
-                         yerr=visit.flux_err, color='red',
+        ax_c = axes_list[axis_i]
+        ax_c.errorbar(visit.t_mean, visit.flux_injected, 
+                      yerr=visit.flux_err, color='xkcd:red',
+                      marker='.', ls='', alpha=.75, ms=10, zorder=3, 
+                      label=r'$s=1.0$')
+        ax_c.errorbar(visit_2.t_mean, visit_2.flux_injected, 
+                      yerr=visit_2.flux_err, color='xkcd:indigo',
+                      marker='.', ls='', alpha=.5, ms=10, zorder=2,
+                      label=r'$s=0.5$')
+        """
+        if visit.FUVexists():
+            ax_c.errorbar(visit.t_mean_FUV, visit.flux_injected_FUV,
+                         yerr=visit.flux_err_FUV, color='blue',
                          marker='.', ls='', alpha=.5, ms=10)
-            if visit.FUVexists():
-                ax_c.errorbar(visit.t_mean_FUV, visit.flux_injected_FUV,
-                             yerr=visit.flux_err_FUV, color='blue',
-                             marker='.', ls='', alpha=.5, ms=10)
-            ax_c = WDutils.plotparams(ax_c)
+        """
+        ax_c.text(.9, .9, str(source_mag),
+                  transform=ax_c.transAxes,
+                  color='gray', fontsize=20, 
+                  ha='center', va='top', 
+                  **afont, **txtkwargsw,
+                  bbox=dict(boxstyle='square', fc='w', ec='none',
+                      alpha=.3))
+        if axis_i == 0:
+            ax_c.legend(loc=4, edgecolor='black', framealpha=0.9, 
+                        markerscale=1, fontsize=15)
+        axis_i += 1
+    for a in ax:
+        a = WDutils.plotparams(a)
+        a.set_xlim(0, 30)
+        a.xaxis.get_major_ticks()[0].set_visible(False)
+        a.xaxis.get_major_ticks()[-1].set_visible(False)
 
-            if use_ylabel:
-                use_ylabel = False
-            else:
-                ax_c.yaxis.set_ticklabels([])
-                use_ylabel = True
 
-            if ii in [0,1]:
-                ax_c.xaxis.set_ticklabels([])
-
-            ax_c.text(.1, .9, str(mag_list[i]), 
-                      transform=ax_c.transAxes,
-                      color='gray', fontsize=20, 
-                      ha='center', va='top', 
-                      **afont, **txtkwargsw,
-                      bbox=dict(boxstyle='square', fc='w', ec='none',
-                          alpha=.3))
-            if ii in [0, 2]:
-                mfcolor='green'
-                if ii==0:
-                    mftext=r'$s=1$'
-                else:
-                    mftext=r'$s=.25$'
-            else:
-                mfcolor='red'
-                if ii==1:
-                    mftext=r'$s=1$'
-                else:
-                    mftext=r'$s=.25$'
-            ax_c.text(.9, .9, mftext, transform=ax_c.transAxes,
-                      color=mfcolor, fontsize=18,
-                      ha='center', va='top',
-                      **afont, **txtkwargsw,
-                      bbox=dict(boxstyle='square', fc='w', ec='none',
-                          alpha=.3))
-
-            if ii == 0:
-                print(ax_c.get_position())
-
-    plt.subplots_adjust(top=.98, right=.98, bottom=.05)
-    for y in [.03, .315, .595, .88]:
-        fig.text(.56, y, 'Time Elapsed (min)', 
-                 va='center', ha='center', fontsize=20)
-    for y in [.18, .45, .733, .94]:
-        fig.text(.05, y, 'Normalized Flux', va='center', 
-                 rotation='vertical', fontsize=20, ha='center')
-    fig.savefig("TestCompare.pdf")
+    fig.savefig("RecoveryCompare.pdf")
 
 def SlicePlot(resultarray):
     #Define our axes
@@ -922,30 +926,8 @@ def SlicePlot(resultarray):
     plt.subplots_adjust(right=.98, bottom=.2)
     fig.savefig('SlicePlot.pdf')
 
-#Find what fraction of of the optical light curve has detectable transits
-def DetectableTransits(opticalLC, threshold):
-    iterations = 10000
-    if not isinstance(threshold, list):
-        threshold = [ threshold ]
-    for i in range(len(threshold)):
-        if threshold[i] > 1:
-            threshold[i] = threshold[i] / 100
-    results = []
-    for t in threshold:
-        print("Threshold: ", t)
-        counter = 0
-        pbar = ProgressBar()
-        for i in pbar(range(iterations)):
-            df_optical, ax = selectOptical(opticalLC, plot=False, exposure=30)
-            if min(df_optical['flux']) <= t:
-                counter += 1
-            else:
-                continue
-        fraction = counter / iterations
-        results.append(fraction)
-    d = dict(zip(threshold, results))
-    return d
 
+#Histogram of magnitudes and bar graph of n visits
 def maglist_hist(mag_array, path_array):
     #Generate Figure
     fig = plt.figure(figsize=(12, 6))
@@ -953,19 +935,23 @@ def maglist_hist(mag_array, path_array):
     fig.text(.5, .05, r'$GALEX$ NUV (mag)', va='center', ha='center',
              fontsize=30)
 
+    #Top axes is a histogram of sources binned by magnitude
     ax0 = plt.subplot2grid((2, 1), (0, 0), colspan=1, rowspan=1)
-    bins = np.arange(14, 21.1, .1)
+    bins = np.array([ round(b, 1) for b  in np.arange(14, 21.1, .1) ])
     ax0.hist(mag_array, bins=bins, color='xkcd:red', linewidth=1.2, 
             edgecolor='black')
     ax0.set_xlim(14, 21)
     ax0 = WDutils.plotparams(ax0)
 
+    #Pickle load - so we don't have to re-run to create plots
     if os.path.isfile('visitarray.pickle'):
         with open('visitarray.pickle', 'rb') as p:
             n_visits = pickle.load(p)
     else:
-        n_visits = np.zeros(len(bins))
+        #Filling array over same range as histogram
+        n_visits = []
         pbar = ProgressBar()
+        #Same procedure used for selecting sources for maglist
         for filename in pbar(path_array):
             print(filename)
             usecols = ['t0', 't1', 't_mean',
@@ -988,22 +974,88 @@ def maglist_hist(mag_array, path_array):
                     if visit.existingperiods() == False:
                         visit_list.append(visit)
 
-            idx_bins = np.where(bins <= source_mag)[0]
-            if len(idx_bins) != 0:
-                idx_bins = idx_bins.max()
-                n_visits[idx_bins] += len(visit_list)
+            n_visits.append(len(visit_list))
 
+        #Save as a pickle for future use
         with open('visitarray.pickle', 'wb') as p:
             pickle.dump(n_visits, p)
+
+    visit_mags = []
+    for i in range(len(mag_array)):
+        for ii in range(n_visits[i]):
+            visit_mags.append(mag_array[i])
+
+    #Bottom axes: bar graph over same xrange as hist
     ax1 = plt.subplot2grid((2, 1), (1, 0), colspan=1, rowspan=1)
-    ax1.bar(bins, n_visits, width = .1, edgecolor='black', 
-            color='xkcd:darkblue', align='edge')
+    ax1.hist(visit_mags, bins=bins, color='xkcd:darkblue', lw=1.2, 
+             edgecolor='black')
     ax1.set_xlim(14, 21)   
     ax1 = WDutils.plotparams(ax1)
 
     fig.savefig('MagnitudeHistograms.pdf')
 
 
+#Find what fraction of of the optical light curve has detectable transits
+def DetectableTransits(opticalLC, threshold):
+    iterations = 10000
+    if not isinstance(threshold, list):
+        threshold = [ threshold ]
+    for i in range(len(threshold)):
+        if threshold[i] > 1:
+            threshold[i] = threshold[i] / 100
+    results = []
+    for t in threshold:
+        print("Threshold: ", t)
+        counter = 0
+        pbar = ProgressBar()
+        for i in pbar(range(iterations)):
+            df_optical, ax = selectOptical(opticalLC, plot=False, exposure=30)
+            idx_below = np.where(df_optical['flux'] <= t)[0]
+            #There must be at least five points below threshold
+            if len(idx_below) >= 5:
+                counter += 1
+            else:
+                continue
+        fraction = counter / iterations
+        results.append(fraction)
+    d = dict(zip(threshold, results))
+    return d
+
+#Find sources for comparision plot easily
+def SourceSearch(desiredmag, mf, desired_result, mag_array, path_array, 
+                 opticalLC):
+    lowermag = desiredmag - 0.3
+    uppermag = desiredmag + 0.3
+    mag_range = [ round(b, 1) for b in np.arange(
+        desiredmag-0.3, desiredmag+0.3, 0.1) ]
+    desiredbin = np.random.choice(mag_range)
+
+    #Iterate through sources in mag range until five are found 
+    sources_found = []
+    i = 1
+    while len(sources_found) < 5:
+        if i%25 == 0:
+            print(i, len(sources_found))
+        i += 1
+        visit, source_mag, filename, visit_i = selectLC(
+                desiredbin, 0.1, mag_array, path_array)
+        if type(mf) == list:
+            visit_2 = copy.deepcopy(visit)
+            visit.inject(opticalLC, mf[0], center=185)
+            result = visit.assessrecovery()
+            if result == desired_result[0]:
+                visit_2.inject(opticalLC, mf[1], center=185)
+                result_2 = visit_2.assessrecovery()
+                if result_2 == desired_result[1]:
+                    sources_found.append([filename, visit_i[0]])
+        else:
+            visit.inject(opticalLC, mf, center=185)
+            result = visit.assessrecovery()
+            if result == desired_result:
+                sources_found.append([filename, visit_i[0]])
+
+    #Should probably format output to a txt file
+    print(sources_found)
     
 if __name__ == '__main__':
 
@@ -1028,6 +1080,8 @@ if __name__ == '__main__':
                         default=False, action='store_true')
     parser.add_argument("--dt", help="Find detectable transit percentage",
                         default=False, action='store_true')
+    parser.add_argument("--ss", help="Search for sources for comparison plot",
+                        default=False, action='store_true')
     parser.add_argument("--gen_array", help="Generate result array pickle",
                         default=None, type=str)
     args=parser.parse_args()
@@ -1051,13 +1105,32 @@ if __name__ == '__main__':
     mag_array = MagList[0]
     path_array = MagList[1]
 
-    
-    
     if args.test:
         testfunction_wrapper(path_array, args.output, args.p)
     elif args.dt:
         result = DetectableTransits(opticalLC, [.9, .75, .5])
         print(result)
+    elif args.ss:
+        desiredmag = float(input("Enter desired magnitude --- "))
+        assert(13 < desiredmag < 22)
+        desiredmf = float(input("Scale factor --- "))
+        assert(0 <= desiredmf <= 2)
+        desiredresult = int(input("Result (1 or 0) --- "))
+        assert(desiredresult in [0,1])
+        secondcriteria = input("Second criteria set? --- ")
+        if len(secondcriteria) == 0:
+            SourceSearch(desiredmag, desiredmf, desiredresult, 
+                         mag_array, path_array, opticalLC)
+        else:
+            desiredmf_2 = float(input("Scale factor --- "))
+            assert(0 <= desiredmf_2 <= 2)
+            desiredresult_2 = int(input("Result (1 or 0) --- "))
+            assert(desiredresult_2 in [0,1])
+            SourceSearch(desiredmag, [desiredmf, desiredmf_2],
+                         [desiredresult, desiredresult_2], 
+                         mag_array, path_array, opticalLC)
+
+        
     elif args.plot:
         selection = input("(1) Projection Plot \n"
                           +"(2) Recovery Plot \n"
@@ -1070,7 +1143,8 @@ if __name__ == '__main__':
         elif selection == '2':
             RecoveryPlot(resultarray)
         elif selection == '3':
-            ComparisonPlot(resultarray, opticalLC)
+            assert(os.path.isfile('comparisons.txt'))
+            ComparisonPlot('comparisons.txt', opticalLC)
         elif selection == '4':
             SlicePlot(resultarray)
         elif selection == '5':
@@ -1084,5 +1158,3 @@ if __name__ == '__main__':
         wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
                 args.mu, args.bs, args.p, args.output, args.v)
    
-   
-
