@@ -43,7 +43,7 @@ def find_cRMS(m_ab, sigma_mag, band):
     lowerbound = percentile_df['lower']
     upperbound = percentile_df['upper']
     #Take metric as ratio to median in bin
-    if m_ab < 21.5:
+    if m_ab < 21:
         sigmamag_idx = np.where(magbins <= m_ab)[0]
         if len(sigmamag_idx) > 0:
             sigmamag_idx = max(sigmamag_idx)
@@ -95,7 +95,7 @@ def find_cEXP(df):
 def find_cPGRAM(ls, amp_detrad, exposure=1800):
     freq, amp = ls.autopower(nyquist_factor=1)
     #Identify statistically significant peaks
-    top5amp = heapq.nlargest(5, amp)
+    top1amp = heapq.nlargest(1, amp)
     #top5amp_expt = heapq.nlargest(5, amp_expt)
     top5amp_detrad = heapq.nlargest(5, amp_detrad)
     #Find bad peaks
@@ -118,7 +118,7 @@ def find_cPGRAM(ls, amp_detrad, exposure=1800):
     ditherfaplevel = ls.false_alarm_level(ditherfapval)
     ditherperiod_exists=False
     sspeaks = [] #freq,amp,fap tuples
-    for a in top5amp:
+    for a in top1amp:
         #False alarm probability threshold
         fapval = ls.false_alarm_probability(a)
         if fapval <= fap:
