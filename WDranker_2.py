@@ -168,8 +168,10 @@ def find_cPGRAM(ls, amp_detrad, exposure=1800):
 
     c_periodogram = 0
     for peak in sspeaks:
-        if (peak[0] < (1/ (exposure))) or (peak[0] > (1/25)):
-                c_periodogram += peak[3] * .125
+        if peak[0] > (1/30):
+            c_periodogram += 0
+        elif peak[0] < (1/(exposure)):
+            c_periodogram += peak[3] * .125
         else:
             c_periodogram += peak[3]
 
@@ -327,7 +329,7 @@ def main(csvname,
     else:
         csvpath_other = csvpath.replace('FUV', 'NUV')
     #Look for file in GALEXphot/LCs
-    csvpath_other = '/home/dmrowan/WhiteDwarfs/GALEXphot/LCs/'+csvpath_other
+    csvpath_other = f"/home/dmrowan/WhiteDwarfs/GALEXphot/LCs/{csvpath_other}"
     if os.path.isfile(csvpath_other):
         other_band_exists = True
         alldata_other = pd.read_csv(csvpath_other)
@@ -335,7 +337,7 @@ def main(csvname,
         other_band_exists = False
 
     if other_band_exists:
-        #print("Generating additional LC data for " + band_other + " band")
+        #print(f"Generating additional LC data for {band_other} band")
         alldata_other = pd.read_csv(csvpath_other)
         alldata_other = WDutils.df_fullreduce(alldata_other)
         #Fix rows with weird t_mean time
@@ -351,9 +353,9 @@ def main(csvname,
     bigcatalog = pd.read_csv(catalogpath)
     bigcatalog_idx = WDutils.catalog_match(source, bigcatalog)
     if len(bigcatalog_idx) == 0:
-        print(source, "Not in catalog")
+        print(f"{source} not in catalog")
         with open("../brokensources.txt", 'a') as f:
-            f.write(source + "\n")
+            f.write(f"source \n")
         return
     else:
         bigcatalog_idx = bigcatalog_idx[0]
@@ -369,8 +371,7 @@ def main(csvname,
 
     ###Break the alldata table into exposure groups### 
     data = WDutils.dfsplit(alldata, 100)
-    print("Dividing {0} data for {1} into {2} exposure groups".format(
-        band, source, str(len(data))))
+    print(f"Dividing {source} {band} data into {len(data)} exposure groups")
 
     #Initialize Lists
     df_number = 1
@@ -522,7 +523,7 @@ def main(csvname,
             + (w_expt * c_exposure) 
             + (w_magfit * c_magfit) 
             + (w_WS * c_ws))
-        print("Exposure group "+str(df_number)+" ranking: "+ str(C))
+        print(f"Exposure group {df_number} ranking: {C}")
         c_vals.append(C)
 
 
@@ -531,9 +532,8 @@ def main(csvname,
             fig = plt.figure(df_number, figsize=(16,12))
             gs.GridSpec(4,4)
             fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-            fig.suptitle(
-                    "Exposure group {0} with {1}s \nRanking: {2} {3} significant peaks".format( str(df_number), str(exposure), str(C), str(len(sspeaks))))
-
+            fig.suptitle(f"Exposure group {df_number} with {exposure}s \n"
+                         f"Ranking: {C}")
             #Subplot for LC
             plt.subplot2grid((4,4), (0,0), colspan=4, rowspan=2)
             #Convert to JD here as well
@@ -570,7 +570,7 @@ def main(csvname,
 
             ax = plt.gca()
             ax = WDutils.plotparams(ax)
-            plt.title(band+' light curve')
+            plt.title(f"{band} light curve")
             plt.xlabel('Time JD')
             plt.ylabel('Flux mmi')
             plt.legend(loc=1)
@@ -592,7 +592,7 @@ def main(csvname,
             ax.plot(freq, amp, 'g-', label='Data')
             ax.plot(freq_detrad, amp_detrad, 'r-', label="Detrad", alpha=.25)
             ax.plot(freq_expt, amp_expt, 'b-', label="Exposure", alpha=.25)
-            ax.set_title(band+' Periodogram')
+            ax.set_title(f"{band} Periodogram")
             ax.set_xlabel('Freq [Hz]')
             ax.set_ylabel('Amplitude')
             ax.set_xlim(0, np.max(freq))
@@ -604,7 +604,7 @@ def main(csvname,
             top5amp_detrad = heapq.nlargest(5, amp_detrad)
             bad_detrad = pgram_tup.bad_detrad
             if any(np.isnan(x) for x in top5amp_detrad):
-                print("No detrad peaks for exposure group " + str(df_number))
+                print(f"No detrad peaks for exposure group {df_number}")
             else:
                 for tup in bad_detrad:
                     ax.axvspan(tup[0], tup[1], alpha=.1, color='black')
@@ -613,17 +613,17 @@ def main(csvname,
             for level in [.05]:
                 ax.axhline(ls.false_alarm_level(level), 
                            color='black', alpha = .5, 
-                           ls = '--', label = 'FAP: '+str(level))
+                           ls = '--', label = f"FAP: {level}")
             ax.axhline(ls.false_alarm_level(.25), color='black', alpha=.5, 
-                        ls=':', label = 'FAP: '+str(.25))
+                        ls=':', label = 'FAP: 0.25')
 
             ax.legend()
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
             #Subplot for png image
             plt.subplot2grid((4,4), (2,3), colspan=1, rowspan=2)
-            pngfile = ("/home/dmrowan/WhiteDwarfs/GALEXphot/pngs/"
-                      +source+".png")
+            pngfile = (
+                    f"/home/dmrowan/WhiteDwarfs/GALEXphot/pngs/{source}.png")
             img1 = mpimg.imread(pngfile)
             plt.imshow(img1)
             #Turn of axes 
@@ -631,8 +631,7 @@ def main(csvname,
             plt.axis('off')
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-            saveimagepath = str(
-                    "PDFs/"+source+"-"+band+"qlp"+str(df_number)+".pdf")
+            saveimagepath=f"PDFs/{source}-{band}qlp{df_number}.pdf"
             fig.savefig(saveimagepath)
 
             #Close figure
@@ -670,9 +669,7 @@ def main(csvname,
         c_ws_max = 0
         c_exp_max = 0
         c_pgram_max = 0
-    print(source, "Total rank: " + str(totalrank), 
-          "Best rank: " + str(bestrank), 
-          "Best group: " + str(best_expt_group))
+    print(f"{source} Best Rank: {bestrank} in group {best_expt_group}")
 
     ###Get most prevalent period from strongest_periods_list###
     all_periods = [ tup[0] for tup in strongest_periods_list ]
@@ -712,7 +709,7 @@ def main(csvname,
             "c_pgram_max":[c_pgram_max],
             }
     dfoutput = pd.DataFrame(outputdic)
-    dfoutput.to_csv("Output/"+source+"-"+band+"-output.csv", index=False)
+    dfoutput.to_csv(f"Output/{source}-{band}-output.csv", index=False)
 
 
     if makeplot:
@@ -767,8 +764,7 @@ def main(csvname,
             plt.ylabel('Relative Counts per Second')
             #Plot data in other band
             if other_band_exists:
-                print("Plotting additional LC data for " + 
-                      band_other + " band")
+                print(f"Plotting additional LC data for {band_other} band")
                 plt.errorbar(alldata_jd_tmean_other, alldata_flux_bgsub_other, 
                              yerr=alldata_flux_bgsub_err_other, 
                              color=bandcolors[band_other], marker='.', 
@@ -801,8 +797,7 @@ def main(csvname,
                            marker='.', zorder=2, ls='', alpha=.125)
             #Plot data in other band
             if other_band_exists:
-                print("Plotting additional LC data for " 
-                      + band_other + " band")
+                print(f"Plotting additional LC data for {band_other} band")
                 axall.errorbar(alldata_jd_tmean_other, 
                                alldata_flux_bgsub_other, 
                                yerr=alldata_flux_bgsub_err_other, 
@@ -813,18 +808,12 @@ def main(csvname,
             axall.legend()
 
         #Supertitle
-        figall.suptitle("Combined Light Curve for {0} in {1} "
-                        +"\nBest rank {2} in exposure group {3} "
-                        +"\nTotal rank {4} in {5} exposure groups".format(
-                            source, 
-                            band, 
-                            str(round(bestrank,2)), 
-                            str(best_expt_group), 
-                            str(round(totalrank, 2)), 
-                            str(len(data)))
-                        )
+        figall.suptitle(
+                f"Combined Light curve for {source} in {band} \n"
+                f"Best rank {round(bestrank, 2)} in group {best_expt_group}"
+                f"Total rank {round(totalrank, 2)} in {len(data)} groups")
 
-        all1saveimagepath = str("PDFs/"+source+"-"+band+"all1"+".pdf")
+        all1saveimagepath = f"PDFs/{source}-{band}all1.pdf"
         figall.savefig(all1saveimagepath)
         #Clear figure
         figall.clf()
@@ -926,7 +915,7 @@ def main(csvname,
         axall2[1].text(.7, 1, information2, size=15, ha='right', va='top')
         axall2[1].axis('off')
 
-        all2saveimagepath = str("PDFs/"+source+"-"+band+"all2"+".pdf")
+        all2saveimagepath = f"PDFs/{source}-{band}all2.pdf"
         figall2.savefig(all2saveimagepath)
 
         #Clear figure
