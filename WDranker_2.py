@@ -125,12 +125,14 @@ def find_cPGRAM(ls, amp_detrad, exposure=1800):
             ratio = a / ls.false_alarm_level(fap)
             idx = np.where(amp==a)[0]
             f = freq[idx]
-            #Now check if it is in any of the bad ranges
             hits = 0
+            #Now check if it is in any of the bad ranges
             for tup in bad_detrad:
                 if ( f > tup[0] ) and ( f < tup[1] ):
                     hits+=1
                     ditherperiod_exists = True
+            if (1/f) < 31:
+                hits += 1
             #If hits is still 0, the peak isnt in any of the bad ranges
             if hits == 0:
                 sspeaks.append( (f, a, fapval, ratio) ) 
@@ -168,9 +170,7 @@ def find_cPGRAM(ls, amp_detrad, exposure=1800):
 
     c_periodogram = 0
     for peak in sspeaks:
-        if peak[0] > (1/30):
-            c_periodogram += 0
-        elif peak[0] < (1/(exposure)):
+        if peak[0] < (1/(exposure)):
             c_periodogram += peak[3] * .125
         else:
             c_periodogram += peak[3]
@@ -810,7 +810,7 @@ def main(csvname,
         #Supertitle
         figall.suptitle(
                 f"Combined Light curve for {source} in {band} \n"
-                f"Best rank {round(bestrank, 2)} in group {best_expt_group}"
+                f"Best rank {round(bestrank, 2)} in df {best_expt_group} \n"
                 f"Total rank {round(totalrank, 2)} in {len(data)} groups")
 
         all1saveimagepath = f"PDFs/{source}-{band}all1.pdf"
