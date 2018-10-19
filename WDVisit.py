@@ -7,12 +7,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+from progressbar import ProgressBar
 import random
 random.seed()
 from scipy.optimize import curve_fit
+from scipy.optimize import leastsq
 import WDranker_2
 import WDutils
 from WD_Recovery import calculate_jd, selectOptical
+import time
 
 # Dom Rowan REU 2018
 
@@ -36,6 +39,7 @@ class Visit:
         # Determine band
         if 'FUV' in self.filename:
             self.band = 'FUV'
+            self.otherband = 'NUV'
             self.fuv_filename = self.filename
             self.nuv_filename = self.fuv_filename.replace('FUV', 'NUV')
         else:
@@ -43,6 +47,7 @@ class Visit:
                 raise ValueError('Filename must include band info')
             else:
                 self.band = 'NUV'
+                self.otherband = 'FUV'
                 self.nuv_filename = self.filename
                 self.fuv_filename = self.nuv_filename.replace('FUV', 'NUV')
             
@@ -104,7 +109,9 @@ class Visit:
     def set_FUVdir(self, path):
         if type(path) != str:
             raise TypeError("FUV path must be string")
-        if path[-1] != '/':
+        if path == "":
+            self.fuv_path = path
+        elif path[-1] != '/':
             self.fuv_path = f"{path}/"
         else:
             self.fuv_path = path
@@ -129,12 +136,17 @@ class Visit:
         else:
             return False
 
-    def FUVmatch(self):
-        if self.FUVexists():
+    def FUVmatch(self, scale=1):
+        if self.band != 'NUV':
+            raise ValueError("FUV match only applicable for NUV data")
+        elif self.FUVexists():
             alldata_fuv = pd.read_csv(f"{self.fuv_path}{self.fuv_filename}")
             alldata_fuv = WDutils.df_fullreduce(alldata_fuv)
             alldata_fuv = WDutils.tmean_correction(alldata_fuv)
-            fuv_relativetup = WDutils.relativescales_1(alldata_fuv)
+            if scale == 1:
+                fuv_relativetup = WDutils.relativescales_1(alldata_fuv)
+            else:
+                fuv_relativetup = WDutils.relativescales(alldata_fuv)
             alldata_fuv_t_mean = fuv_relativetup.t_mean
             alldata_fuv_flux = fuv_relativetup.flux
             alldata_fuv_flux_err = fuv_relativetup.err
@@ -144,7 +156,10 @@ class Visit:
             for i in range(len(alldata_fuv['t_mean'])):
                 jd = calculate_jd(alldata_fuv['t_mean'][i])
                 alldata_fuv.loc[i, 't_mean'] = jd
-            fuv_relativetup = WDutils.relativescales_1(alldata_fuv)
+            if scale == 1:
+                fuv_relativetup = WDutils.relativescales_1(alldata_fuv)
+            else:
+                fuv_relativetup = WDutils.relativescales(alldata_fuv)
             alldata_fuv_t_mean = fuv_relativetup.t_mean
             alldata_fuv_flux = fuv_relativetup.flux
             alldata_fuv_flux_err = fuv_relativetup.err
@@ -165,6 +180,53 @@ class Visit:
             return tup
         else:
             return None
+
+    def NUVmatch(self, scale=1):
+        if self.band != 'FUV':
+            raise ValueError("NUV match only applicable for FUV data")
+        elif self.NUVexists():
+            alldata_nuv = pd.read_csv(f"{self.nuv_path}{self.nuv_filename}")
+            alldata_nuv = WDutils.df_fullreduce(alldata_nuv)
+            alldata_nuv = WDutils.tmean_correction(alldata_nuv)
+            if scale == 1:
+                nuv_relativetup = WDutils.relativescales_1(alldata_nuv)
+            else:
+                nuv_relativetup = WDutils.relativescales(alldata_nuv)
+            alldata_nuv_t_mean = nuv_relativetup.t_mean
+            alldata_nuv_flux = nuv_relativetup.flux
+            alldata_nuv_flux_err = nuv_relativetup.err
+
+            if self.timereset == False:
+                self.reset_time()
+            for i in range(len(alldata_nuv['t_mean'])):
+                jd = calculate_jd(alldata_nuv['t_mean'][i])
+                alldata_nuv.loc[i, 't_mean'] = jd
+            if scale == 1:
+                nuv_relativetup = WDutils.relativescales_1(alldata_nuv)
+            else:
+                nuv_relativetup = WDutils.relativescales(alldata_nuv)
+            alldata_nuv_t_mean = nuv_relativetup.t_mean
+            alldata_nuv_flux = nuv_relativetup.flux
+            alldata_nuv_flux_err = nuv_relativetup.err
+
+            idx_nuv = np.where((alldata_nuv_t_mean >= self.tmin)
+                               & (alldata_nuv_t_mean <= self.tmax))[0]
+            t_mean_nuv = np.array(alldata_nuv_t_mean[idx_nuv])
+            flux_nuv = np.array(alldata_nuv_flux[idx_nuv])
+            flux_err_nuv = np.array(alldata_nuv_flux_err[idx_nuv])
+
+            t_mean_nuv = [(jd - self.tmin) * 1440 for jd in t_mean_nuv]
+
+            OutputTup = collections.namedtuple('OutputTup', ['t_mean',
+                                                             'flux',
+                                                             'err'])
+            tup = OutputTup(t_mean_nuv, flux_nuv, flux_err_nuv)
+
+            return tup
+        else:
+            return None
+
+
 
     # Inject an optical lc and scale by multiplicative factor
     def inject(self, opticalLC, mf, plot=False, center=None):
@@ -340,10 +402,12 @@ class Visit:
         else:
             return False
 
-    def sinefit(self):
+    # Perform a sine least squares fit
+    def lsfit(self, iterations=100, plot=False):
+        print(f"Fitting {self.filename}")
         if not self.timereset:
             self.reset_time()
-
+        # Drop colord points from main band data
         coloredtup = WDutils.ColoredPoints(self.df)
         redpoints = coloredtup.redpoints
         bluepoints = coloredtup.bluepoints
@@ -351,24 +415,143 @@ class Visit:
         df_reduced = self.df.drop(index=droppoints)
         df_reduced = df_reduced.reset_index(drop=True)
         df_reduced = WDutils.df_firstlast(df_reduced)
+        # Rescale on percentage scale
         relativetup = WDutils.relativescales(df_reduced)
-        t_mean = relativetup.t_mean
-        flux_bgsub = relativetup.flux
+        t_mean = np.array(relativetup.t_mean)
+        flux_bgsub = np.array(relativetup.flux)
+        flux_bgsub_err = np.array(relativetup.err)
+        # Want time in seconds, rather than minutes
+        time_seconds = t_mean * 60
+
+        # Construct LS periodogram to get period guess
         ls = LombScargle(t_mean, flux_bgsub)
         freq, amp = ls.autopower(nyquist_factor=1)
         freq_max = freq[np.where(np.array(amp) == max(amp))[0][0]]
-        period_guess = (1 / freq_max)
+        period_guess = (1 / freq_max) * 60
 
-        time_seconds = t_mean * 60
+        # Reduction for other band
+        other_band_exists = False
+        if self.band == 'NUV':
+            fuvtup = self.FUVmatch()
+            if fuvtup is not None:
+                time_seconds_other = np.array(fuvtup.t_mean) * 60
+                flux_bgsub_other = fuvtup.flux
+                flux_bgsub_err_other = fuvtup.err
+                other_band_exists = True
+        else:
+            nuvtup = self.NUVmatch()
+            if nuvtup is not None:
+                time_seconds_other = np.array(nuvtup.t_mean) * 60
+                flux_bgsub_other = nuvtup.flux
+                flux_bgsub_err_other = nuvtup.err
+                other_band_exists = True
 
-        def fitfunc(t, A, b, phi):
-            return A * np.sin(b * t + phi)
+        # Guess parameters, same between bands except for amplitude
+        guess_mean = np.mean(flux_bgsub)
+        guess_phase = 0
+        guess_freq = (2*np.pi)/period_guess
+        guess_amp = np.max(flux_bgsub)
+        guess_amp_other = np.max(flux_bgsub_other)
 
-        p0 = [np.max(flux_bgsub), 2 * np.pi * period_guess, 0]
-        popt, pcov = curve_fit(fitfunc, time_seconds,
-                               flux_bgsub, p0=p0, absolute_sigma=False)
+        # Fitting for main band
+        data_guess = (guess_amp * 
+                np.sin(time_seconds*guess_freq+guess_phase)+guess_mean)
+        amp_list = []
+        p_list = []
+        pbar = ProgressBar()
+        for i in pbar(range(iterations)):
+            bs_flux = []
+            for ii in range(len(flux_bgsub)):
+                val = flux_bgsub[ii]
+                err = flux_bgsub_err[ii]
+                bs_flux.append(np.random.normal(val, err))
 
-        return (popt[1] / (2 * np.pi)) * 60, pcov
+            optimize_func= lambda x: x[0]*np.sin(
+                    x[1]*time_seconds+x[2]) + x[3] - bs_flux
+            est_amp, est_freq, est_phase, est_mean = leastsq(
+                    optimize_func, 
+                    [guess_amp, guess_freq, guess_phase, guess_mean])[0]
+            amp_list.append(est_amp)
+            p_list.append((2*np.pi)/est_freq)
+
+        # Identical fitting process for other band
+        if other_band_exists:
+            data_guess_other = (guess_amp_other * 
+                    np.sin(time_seconds_other*guess_freq+guess_phase)
+                    +guess_mean)
+            amp_list_other = []
+            p_list_other = []
+            pbar2 = ProgressBar()
+            for i in pbar2(range(iterations)):
+                bs_flux_other = []
+                for ii in range(len(flux_bgsub_other)):
+                    val = flux_bgsub_other[ii]
+                    err = flux_bgsub_err_other[ii]
+                    bs_flux_other.append(np.random.normal(val, err))
+
+                optimize_func= lambda x: x[0]*np.sin(
+                        x[1]*time_seconds_other+x[2]) + x[3] - bs_flux_other
+                est_amp, est_freq, est_phase, est_mean = leastsq(
+                        optimize_func, 
+                        [guess_amp_other, guess_freq, 
+                            guess_phase, guess_mean])[0]
+                amp_list_other.append(est_amp)
+                p_list_other.append((2*np.pi)/est_freq)
+
+
+        # Plotting option
+        if plot:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+
+            fine_t = np.arange(min(time_seconds), max(time_seconds), 0.1)
+            data_fit = est_amp*np.sin(est_freq*fine_t+est_phase) + est_mean
+
+            colors = {'NUV':'xkcd:red', 'FUV':'xkcd:azure'}
+
+            markers, caps, bars = ax.errorbar(
+                    time_seconds, flux_bgsub, 
+                    yerr=flux_bgsub_err, color=colors[self.band], alpha=.75, 
+                    marker='.', ls='', ms=10)
+            [bar.set_alpha(.25) for bar in bars]
+
+            ax = WDutils.plotparams(ax)
+
+            ax.plot(time_seconds, data_guess, label='first guess')
+            ax.plot(fine_t, data_fit, label='after fitting')
+            ax.legend()
+
+            fig.savefig(f"{self.filename}-fit.pdf")
+
+        # Save output in a named tuple
+        OutputTup = collections.namedtuple(
+                "OutputTup", ['NUVperiod', 'NUVperr', 'NUVamp', 'NUVaerr',
+                              'FUVperiod', 'FUVperr', 'FUVamp', 'FUVaerr'])
+        if self.band == 'NUV':
+            if (other_band_exists and 
+                    (abs(np.mean(p_list)-np.mean(p_list_other)) < 150)):
+                tup = OutputTup(np.mean(p_list), np.std(p_list),
+                                np.mean(amp_list), np.std(amp_list),
+                                np.mean(p_list_other), np.std(p_list_other),
+                                np.mean(amp_list_other), 
+                                np.std(amp_list_other))
+            else:
+                tup = OutputTup(np.mean(p_list), np.std(p_list),
+                                np.mean(amp_list), np.std(amp_list),
+                                None, None, None, None)
+        else:
+            if (other_band_exists and 
+                    (abs(np.mean(p_list)-np.mean(p_list_other)) < 150)):
+                tup = OutputTup(np.mean(p_list_other), np.std(p_list_other),
+                                np.mean(amp_list_other), 
+                                np.std(amp_list_other),
+                                np.mean(p_list), np.std(p_list),
+                                np.mean(amp_list), np.std(amp_list))
+            else:
+                tup = OutputTup(None, None, None, None,
+                                np.mean(p_list), np.std(p_list),
+                                np.mean(amp_list), np.mean(amp_list))
+        return tup
+
 
     # Simple Representation
     def __repr__(self):
