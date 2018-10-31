@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.patheffects import withStroke
+from matplotlib.ticker import MultipleLocator
 import multiprocessing as mp
 import numpy as np
 import os
@@ -21,9 +22,12 @@ import _pickle as pickle
 from progressbar import ProgressBar
 import random
 random.seed()
+from statsmodels.stats.proportion import proportion_confint
 import time
 import WDranker_2
 import WDutils
+import WDVisit
+import yt
 
 desc="""
 WD_Recovery: Procedure for injecting and recovering synthetic optical 
@@ -69,284 +73,6 @@ def FindCutoff(path_array, percentile):
     cutoff = np.percentile(df['BestRank'], percentile)
     return cutoff
 
-#Define a class for a galex visit df
-class Visit:
-    def __init__(self, df, filename, mag):
-        self.df = df
-        self.timereset = False
-        self.df = self.df.reset_index(drop=True)
-        self.filename = filename
-        self.mag = mag
-        self.FUVfilename = filename.replace('NUV', 'FUV')
-        self.cEXP()
-        self.original_median = self.flux_median()
-
-    def cEXP(self):
-        tup = WDranker_2.find_cEXP(self.df)
-        self.c_exposure = tup.c_exposure
-        self.exposure = tup.exposure
-
-    #Need this for when we revert relative scales
-    def flux_median(self):
-        df_reduced = WDutils.df_fullreduce(self.df)
-        allflux = df_reduced['flux_bgsub']
-        median = np.nanmedian(allflux)
-        return median
-        
-
-    #Simple check if we have enough usable data
-    def good_df(self):
-        #Create a second data frame with fully reduced data
-        #Use this as a way to check flag points
-        df2 = WDutils.df_fullreduce(self.df)
-        if len(df2['t1']) <= 10:
-            return False
-
-        elif len(self.df['t1']) == 0:
-            return False
-        else:
-            exposuretup = WDranker_2.find_cEXP(self.df)
-            self.exposure = exposuretup.exposure
-            self.tflagged = exposuretup.t_flagged
-            if (self.tflagged > (self.exposure / 4)) or (self.exposure < 500):
-                return False
-            else:
-                return True
-    #Reset time to minutes from start
-    def reset_time(self):
-        for i in range(len(self.df['t_mean'])):
-            jd = calculate_jd(self.df['t_mean'][i])
-
-            if i == 0:
-                tmin = jd
-
-            if i == len(self.df['t_mean'])-1:
-                tmax = jd
-
-            newtime = (jd - tmin) * 1440
-            self.df.loc[i, 't_mean'] = newtime
-        self.timereset = True
-        self.tmin = tmin
-        self.tmax = tmax
-
-    def FUVexists(self):
-        if os.path.isfile('FUV/'+self.FUVfilename):
-            return True
-        else:
-            return False
-    
-    def FUVmatch(self):
-        if self.FUVexists():
-            alldataFUV = pd.read_csv('FUV/'+self.FUVfilename)
-            alldataFUV = WDutils.df_fullreduce(alldataFUV)
-            alldataFUV = WDutils.tmean_correction(alldataFUV)
-            FUV_relativetup = WDutils.relativescales_1(alldataFUV)
-            alldataFUV_t_mean = FUV_relativetup.t_mean
-            alldataFUV_flux = FUV_relativetup.flux
-            alldataFUV_flux_err = FUV_relativetup.err
-
-            if self.timereset==False:
-                self.reset_time()
-            for i in range(len(alldataFUV['t_mean'])):
-                jd = calculate_jd(alldataFUV['t_mean'][i])
-                alldataFUV.loc[i, 't_mean'] = jd
-            FUV_relativetup = WDutils.relativescales_1(alldataFUV)
-            alldataFUV_t_mean = FUV_relativetup.t_mean
-            alldataFUV_flux = FUV_relativetup.flux
-            alldataFUV_flux_err = FUV_relativetup.err
-
-            idx_FUV = np.where( (alldataFUV_t_mean >= self.tmin)
-                               &(alldataFUV_t_mean <= self.tmax))[0]
-            t_meanFUV = np.array(alldataFUV_t_mean[idx_FUV])
-            flux_FUV = np.array(alldataFUV_flux[idx_FUV])
-            flux_err_FUV = np.array(alldataFUV_flux_err[idx_FUV])
-
-            t_meanFUV = [ (jd-self.tmin)*1440 for jd in t_meanFUV ]
-    
-            OutputTup = collections.namedtuple('OutputTup', ['t_mean', 
-                                                             'flux', 
-                                                             'err'])
-            tup = OutputTup(t_meanFUV, flux_FUV, flux_err_FUV)
-
-            return tup
-        else:
-            return None
-
-    #Inject an optical lc and scale by multiplicative factor
-    def inject(self, opticalLC, mf, plot=False, center=None):
-        if self.timereset==False:
-            self.reset_time()
-
-        if self.FUVexists():
-            exists=True
-            FUVtup = self.FUVmatch()
-            self.t_mean_FUV = FUVtup.t_mean
-            flux_FUV = FUVtup.flux
-            flux_err_FUV = FUVtup.err
-        else:
-            exists=False
-
-        t_mean = self.df['t_mean']
-        #Shift to relative flux scales
-        relativetup = WDutils.relativescales_1(self.df)
-        flux = relativetup.flux
-        flux_err = relativetup.err
-
-        if plot:
-            fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8, 6))
-            ax0.errorbar(t_mean, flux, yerr=flux_err, color='red')
-            if exists:
-                ax0.errorbar(self.t_mean_FUV, flux_FUV, 
-                             yerr=flux_err_FUV, color='blue')
-            ax0.axhline(np.median(flux), color='black', ls='--')
-            ax0.set_title("Original LC")
-            ax0 = WDutils.plotparams(ax0)
-        
-        #Get optical data
-        df_optical, ax_optical = selectOptical(opticalLC, 
-                                        exposure=self.exposure/60, 
-                                        plot=plot, center=center)
-
-        #linear interpolation to match times
-        optical_flux = np.interp(t_mean, df_optical['time'], 
-                                 df_optical['flux'])
-
-        if exists:
-            optical_flux_FUV = np.interp(self.t_mean_FUV, df_optical['time'],
-                                         df_optical['flux'])
-
-        #Scale by multiplicative factor
-        optical_flux = [ (o - 1)*mf + 1 for o in optical_flux ]
-        flux_injected = [ flux[i] * optical_flux[i] 
-                              for i in range(len(flux)) ]
-
-        #Put back into df
-        self.df.loc[:, 'flux_bgsub'] = flux_injected
-        self.df.loc[:, 'flux_bgsub_err'] = flux_err 
-
-        #Do the same for the FUV
-        if exists:
-            optical_flux_FUV = [ (o -1)*mf + 1 for o in optical_flux_FUV ]
-            flux_injected_FUV = [ flux_FUV[i] * optical_flux_FUV[i]
-                                    for i in range(len(flux_FUV)) ]
-            self.flux_injected_FUV = flux_injected_FUV
-            self.flux_err_FUV = flux_err_FUV
-
-
-        #Remove colored points (flag, expt, sigma clip)
-        coloredtup = WDutils.ColoredPoints(self.df)
-        droppoints = np.unique(np.concatenate([coloredtup.redpoints, 
-                                               coloredtup.bluepoints]))
-        self.df = self.df.drop(index=droppoints)
-        self.df = self.df.reset_index(drop=True)
-
-        self.t_mean = self.df['t_mean']
-        self.flux_injected = self.df['flux_bgsub']
-        self.flux_err = self.df['flux_bgsub_err']
-
-        if plot:
-            ax1.errorbar(self.t_mean, self.flux_injected, 
-                         yerr=self.flux_err, color='red')
-            if exists:
-                ax1.errorbar(self.t_mean_FUV, self.flux_injected_FUV,
-                             yerr=self.flux_err_FUV, color='blue')
-            ax1.axhline(np.median(self.flux_injected), color='black', ls='--')
-            ax1.set_title("Injected LC")
-            ax1 = WDutils.plotparams(ax1)
-
-            #plt.show()
-            return ax1
-    
-    #Use the periodogram metric to test if injected signal is recoverable
-    def assessrecovery(self):
-        exists = self.FUVexists()
-
-        #Exposure metric already computed in init (self.c_exposure)
-
-        #Periodogram Metric
-        time_seconds = self.df['t_mean'] * 60
-        ls = LombScargle(time_seconds, self.flux_injected)
-        freq, amp = ls.autopower(nyquist_factor=1)
-
-        detrad = self.df['detrad']
-        ls_detrad = LombScargle(time_seconds, detrad)
-        freq_detrad, amp_detrad = ls_detrad.autopower(nyquist_factor=1)
-        pgram_tup = WDranker_2.find_cPGRAM(ls, amp_detrad, 
-                                           exposure=self.exposure)
-        #Return 0,1 rseult of recovery
-        c_periodogram = pgram_tup.c
-        ditherperiod_exists = pgram_tup.ditherperiod_exists
-        
-        '''
-        if (not ditherperiod_exists) and (c_periodogram > 0):
-            return 1
-        else:
-            return 0
-        '''
-
-        #Welch Stetson Metric
-        if exists:
-            c_ws = WDranker_2.find_cWS(self.t_mean, self.t_mean_FUV, 
-                                       self.flux_injected, 
-                                       self.flux_injected_FUV,
-                                       self.flux_err, self.flux_err_FUV,
-                                       ditherperiod_exists, self.FUVexists())
-        else:
-            c_ws = WDranker_2.find_cWS(self.t_mean, None,
-                                       self.flux_injected, None,
-                                       self.flux_err, None,
-                                       ditherperiod_exists, self.FUVexists())
-
-        #RMS Metric --- have to 'unscale' the magnitudes
-        converted_flux = [ f*self.original_median 
-                           for f in self.flux_injected ]
-        injectedmags = [ WDutils.flux_to_mag('NUV', f) 
-                         for f in converted_flux ]
-        sigma_mag = median_absolute_deviation(injectedmags)
-        c_magfit = WDranker_2.find_cRMS(self.mag, sigma_mag, 'NUV')
-
-        #Weights:
-        w_pgram = 1
-        w_expt = .2
-        w_WS = .3
-        w_magfit = .25
-
-        C = ((w_pgram * c_periodogram) 
-            + (w_expt * self.c_exposure) 
-            + (w_magfit * c_magfit) 
-            + (w_WS * c_ws))
-
-        #cutoff = FindCutoff(95) 
-        cutoff = .648 #Don't waste time loading in alldata
-        #print("Rank --- ", C, "Cutoff --- ", cutoff)
-
-        if C > cutoff:
-            return 1
-        else:
-            return 0
-
-    #See if we have an exisiting period
-    def existingperiods(self):
-        if not self.timereset:
-            self.reset_time()
-
-        time_seconds = self.df['t_mean'] * 60
-        relativetup = WDutils.relativescales(self.df)
-        flux = relativetup.flux
-        ls = LombScargle(time_seconds, flux)
-        freq, amp = ls.autopower(nyquist_factor=1)
-
-        detrad = self.df['detrad']
-        ls_detrad = LombScargle(time_seconds, detrad)
-        freq_detrad, amp_detrad = ls_detrad.autopower(nyquist_factor=1)
-
-        pgram_tup = WDranker_2.find_cPGRAM(ls, amp_detrad,
-                                           exposure=self.exposure)
-        c_periodogram = pgram_tup.c
-        if c_periodogram > 0:
-            return True
-        else:
-            return False
 
 #Generate list of sources used for planet injection
 def genMagLists(plot=False):
@@ -460,7 +186,7 @@ def selectLC(binvalue, binsize, mag_array, path_array):
     #Pull good visits
     visit_list = []
     for df in data:
-        visit = Visit(df, filename, source_mag)
+        visit = WDVisit.Visit(df, filename, source_mag)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
                 visit_list.append(visit)
@@ -523,6 +249,7 @@ def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
     outputstr = (str(source_mag)+","
                 +str(mf)+","
                 +str(result))
+    outputstr = f"{source_mag},{mf},{result},{filename},{visit_i[0]}"
 
     #Append to outputfile
     if fname is not None:
@@ -569,7 +296,7 @@ def testfunction(filename, output):
     source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
     visit_list = []
     for df in data:
-        visit = Visit(df, filename, source_mag)
+        visit = WDVisit.Visit(df, filename, source_mag)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
                 visit_list.append(visit)
@@ -616,9 +343,12 @@ def gen_resultarray(fname):
     #Parse results
     with open(fname) as f:
         lines = f.readlines()
-    mag = [[float(x.strip()) for x in line.split(',')][0] for line in lines]
-    mf = [[float(x.strip()) for x in line.split(',')][1] for line in lines]
-    out = [[float(x.strip()) for x in line.split(',')][2] for line in lines]
+    #mag = [[float(x.strip()) for x in line.split(',')][0] for line in lines]
+    #mf = [[float(x.strip()) for x in line.split(',')][1] for line in lines]
+    #out = [[float(x.strip()) for x in line.split(',')][2] for line in lines]
+    mag = [float(line.split(',')[0]) for line in lines]
+    mf = [float(line.split(',')[1]) for line in lines]
+    out = [float(line.split(',')[2]) for line in lines]
 
     #Define our axes
     minbin=14
@@ -635,7 +365,9 @@ def gen_resultarray(fname):
     totalarray = np.zeros((len(magbins), len(mfbins)))
     recoveryarray = np.zeros((len(magbins), len(mfbins)))
     resultarray = np.zeros((len(magbins), len(mfbins)))
-    for i in range(len(mag)):
+    print("---Iterating Through Mags---")
+    pbar = ProgressBar()
+    for i in pbar(range(len(mag))):
         magval = mag[i]
         mfval = mf[i]
         result = out[i]
@@ -735,15 +467,37 @@ def RecoveryPlot(resultarray):
 
     #Subplot for array
     ax0 = plt.gca()
+
+    #Define custom colormap
+
+
+    mycm = yt.make_colormap([('black', 5),
+                           (np.array([51, 8, 94])/255, 5),
+                           ('dpurple', 5),
+                           ('purple', 5),
+                           ('dblue', 5),
+                           ('blue', 5),
+                           (np.array([0, 100, 20])/255, 5),
+                           ('dgreen', 5),
+                           ('green', 5),
+                           (np.array([173, 255, 47])/255, 5),
+                           ('yellow', 5),
+                           (np.array([255, 200, 50])/255, 5),
+                           ('orange', 5),
+                           (np.array([255, 69, 0])/255, 5),
+                           (np.array([168, 0, 0])/255, 5),
+                           (np.array([84, 0, 0])/255, 5)],
+                           name='mycm', interpolate=False)
+
     #Use np.flip and T to set up axes correctly
-    im = ax0.imshow(np.flip(resultarray,1).T, cmap='viridis', 
+    im = ax0.imshow(np.flip(resultarray,1).T, cmap='mycm', 
                      extent=(14,22,0,2), aspect='auto')
     ax0.set_xlabel(r'$GALEX$'+' NUV (mag)', fontsize=25)
     ax0.set_ylabel('Scale Factor', fontsize=25)
     ax0.set_xticks([x for x in np.arange(14, 22, 1)])
     ax0 = WDutils.plotparams(ax0)
     ax0.xaxis.get_major_ticks()[0].set_visible(False)
-
+    ax0.set_xlim(xmin=15)
 
     divider = make_axes_locatable(ax0)
     cax = divider.append_axes("right", size="5%", pad=.1)
@@ -791,184 +545,12 @@ def ComparisonPlot(fname, opticalLC):
     afont = {'fontname':'Keraleeyam'}
 
     d_plotting = {'bright':d_sources['bright']['1']['1'],
-                  'medium':d_sources['medium']['1']['1']}
-
-    fig = plt.figure(figsize=(18, 6))
-    mygs = gs.GridSpec(2, 2)
-    mygs.update(hspace=.05, wspace=0)
-    plt.subplots_adjust(top=.98, right=.95, left=.05, bottom=.15)
-    fig.text(.5, .04, 'Time Elapsed (min)', fontsize=30, ha='center',
-             va='center')
-    fig.text(.007, .5, 'Normalized Flux', fontsize=30, 
-             ha='left', va='center', rotation=90)
-    axOptical = plt.subplot2grid((2, 2), (0, 0), colspan=2, rowspan=1)
-
-    axOptical.scatter(opticalLC['time'], opticalLC['flux'], 
-                      color='xkcd:violet', marker='o', s=5)
-    axOptical = WDutils.plotparams(axOptical)
-    axOptical.set_xlim(xmin=min(opticalLC['time']), 
-                       xmax=max(opticalLC['time']))
-
-    axbright = plt.subplot2grid((2,2), (1, 0), colspan=1, rowspan=1)
-    axfaint = plt.subplot2grid((2,2), (1, 1), colspan=1, rowspan=1)
-
-    axes_list = [axbright, axfaint]
-    axis_i = 0
-    center_list = [105, 185]
-    exp_list = []
-    for magkey in d_plotting.keys():
-        sourcefile = d_plotting[magkey][0]
-        visit_i = d_plotting[magkey][1]
-        assert(os.path.isfile(sourcefile))
-        usecols = ['t0', 't1', 't_mean',
-                   'mag_bgsub',
-                   'cps_bgsub', 'cps_bgsub_err', 'counts',
-                   'flux_bgsub', 'flux_bgsub_err',
-                   'detrad', 'flags', 'exptime']
-        alldata = pd.read_csv(sourcefile, usecols=usecols)
-        #Data reduction and time correction
-        alldata = WDutils.df_reduce(alldata)
-        alldata = WDutils.tmean_correction(alldata)
-        #Split into visits 
-        data = WDutils.dfsplit(alldata, 100)
-        source_mag = round(np.nanmedian(alldata['mag_bgsub']),2)
-
-        good_list = []
-        for j in range(len(data)):
-            df = data[j]
-            vtemp = Visit(df, sourcefile, source_mag)
-            if vtemp.good_df() == True: 
-                if vtemp.existingperiods() == False:
-                    good_list.append(j)
-
-        df = data[good_list[visit_i]]
-        visit = Visit(df, sourcefile, source_mag) 
-        visit_2 = Visit(df, sourcefile, source_mag)
-        visit.inject(opticalLC, 1, center=center_list[axis_i])
-        visit_2.inject(opticalLC, .5, center=center_list[axis_i])
-        
-        result1 = visit.assessrecovery()
-        result2 = visit_2.assessrecovery()
-
-        label_list = []
-        for r in [result1, result2]:
-            if r == 1:
-                label_list.append(", recovered")
-            else:
-                label_list.append(", unrecovered")
-        ax_c = axes_list[axis_i]
-        ax_c.errorbar(visit.t_mean, visit.flux_injected, 
-                      yerr=visit.flux_err, color='xkcd:red',
-                      marker='.', ls='', alpha=.75, ms=10, zorder=3, 
-                      label=r'$s=1.0$'+label_list[0])
-        ax_c.errorbar(visit_2.t_mean, visit_2.flux_injected, 
-                      yerr=visit_2.flux_err, color='xkcd:indigo',
-                      marker='.', ls='', alpha=.5, ms=10, zorder=2,
-                      label=r'$s=0.5$'+label_list[1])
-        """
-        if visit.FUVexists():
-            ax_c.errorbar(visit.t_mean_FUV, visit.flux_injected_FUV,
-                         yerr=visit.flux_err_FUV, color='blue',
-                         marker='.', ls='', alpha=.5, ms=10)
-        """
-        mag_text = r'mag$=$' + str(source_mag) 
-        ax_c.text(.05, .15, mag_text, zorder=5, 
-                  transform=ax_c.transAxes,
-                  color='black', fontsize=25, 
-                  ha='left', va='top', 
-                  **afont, #**txtkwargsw,
-                  bbox=dict(boxstyle='square', fc='w', ec='none',
-                      alpha=.3))
-
-        ax_c.legend(loc=4, edgecolor='black', framealpha=0.9, 
-                    markerscale=1, fontsize=15)
-
-        axis_i += 1
-        exp_list.append(visit.exposure)
-
-    for a in [axbright, axfaint]:
-        a = WDutils.plotparams(a)
-        a.set_xlim(0, 30)
-        a.xaxis.get_major_ticks()[0].set_visible(False)
-        a.xaxis.get_major_ticks()[-1].set_visible(False)
-
-    for i in range(len(center_list)):
-        center = center_list[i]
-        exposure = (exp_list[i]) / 60
-        lower_time  = center - (exposure/2)
-        upper_time = center + (exposure/2)
-        condition1 = (opticalLC['time'] >= lower_time) 
-        condition2 = (opticalLC['time'] <= upper_time)
-        condition_idx = condition1 & condition2
-        optical_idx = np.where(condition_idx)[0]
-        flux_values = [ opticalLC['flux'][ii] for ii in optical_idx ]
-        lower_flux = min(flux_values) - .075
-        upper_flux = max(flux_values) + .075
-        width = upper_time - lower_time
-        height = upper_flux - lower_flux
-        p = mpl.patches.Rectangle((lower_time, lower_flux), width=width, 
-                                  height=height, edgecolor='black', lw=2,
-                                  facecolor='0.9', alpha=.4)
-        axOptical.add_patch(p)
-        
-        con1 = mpl.patches.ConnectionPatch(
-                xyA=(lower_time, lower_flux), 
-                xyB=(axes_list[i].get_xlim()[0], axes_list[i].get_ylim()[1]),
-                coordsA="data", coordsB="data", axesA=axOptical, 
-                axesB=axes_list[i], color='black', alpha=.4, lw=2)
-        con2 = mpl.patches.ConnectionPatch(
-                xyA=(upper_time, lower_flux), 
-                xyB=(axes_list[i].get_xlim()[1], axes_list[i].get_ylim()[1]),
-                coordsA="data", coordsB="data", axesA=axOptical, 
-                axesB=axes_list[i], color='black', alpha=.4, lw=2)
-        axOptical.add_artist(con1)
-        axOptical.add_artist(con2)
-       
-
-    fig.savefig("RecoveryCompare.pdf")
-    
-
-def ComparisonPlot2(fname, opticalLC):
-    d_sources = {
-            'bright':{
-                '1':{ '1':[], '0':[]}, 
-                '0.5':{ '1':[], '0':[]}},
-            'medium':{
-                '1':{ '1':[], '0':[]}, 
-                '0.5':{ '1':[], '0':[]}},
-            'faint':{
-                '1':{ '1':[], '0':[]}, 
-                '0.5':{ '1':[], '0':[]}},
-            }
-    #Parse source list
-    assert(os.path.isfile(fname))
-    with open(fname) as f:
-        lines = f.readlines()
-    for l in lines:
-        if (l[0]=='#') or (len(l.split())==0):
-            continue
-        else:
-            ll = l.split()
-            mag = ll[0].replace(',', '')
-            mf = ll[1].replace(',', '')
-            rresult = ll[2].replace(',', '')
-            filepath = ll[3].replace(',','')
-            visit_i = int(ll[4])
-            if float(mag) < 17:
-                d_sources['bright'][mf][rresult].extend([filepath, visit_i])
-            elif float(mag) > 19.9:
-                d_sources['faint'][mf][rresult].extend([filepath, visit_i])
-            else:
-                d_sources['medium'][mf][rresult].extend([filepath, visit_i])
-
-    
-    myeffectw = withStroke(foreground='black', linewidth=1)
-    txtkwargsw = dict(path_effects=[myeffectw])
-    afont = {'fontname':'Keraleeyam'}
-
-    d_plotting = {'bright':d_sources['bright']['1']['1'],
                   'medium':d_sources['medium']['1']['1'],
                   'faint':d_sources['faint']['1']['1']}
+
+    mypurple = (100/255, 0/255, 200/255)
+    myblue = (0, 0, 160/255)
+    myred = (168/255, 0, 0)
 
     fig = plt.figure(figsize=(16, 8))
     mygs = gs.GridSpec(2, 3)
@@ -1016,14 +598,14 @@ def ComparisonPlot2(fname, opticalLC):
         good_list = []
         for j in range(len(data)):
             df = data[j]
-            vtemp = Visit(df, sourcefile, source_mag)
+            vtemp = WDVisit.Visit(df, sourcefile, source_mag)
             if vtemp.good_df() == True: 
                 if vtemp.existingperiods() == False:
                     good_list.append(j)
 
         df = data[good_list[visit_i]]
-        visit = Visit(df, sourcefile, source_mag) 
-        visit_2 = Visit(df, sourcefile, source_mag)
+        visit = WDVisit.Visit(df, sourcefile, source_mag) 
+        visit_2 = WDVisit.Visit(df, sourcefile, source_mag)
         visit.inject(opticalLC, 1, center=center_list[axis_i])
         visit_2.inject(opticalLC, .5, center=center_list[axis_i])
         
@@ -1037,14 +619,18 @@ def ComparisonPlot2(fname, opticalLC):
             else:
                 label_list.append(", unrecovered")
         ax_c = axes_list[axis_i]
-        ax_c.errorbar(visit.t_mean, visit.flux_injected, 
-                      yerr=visit.flux_err, color='xkcd:red',
-                      marker='.', ls='', alpha=.75, ms=10, zorder=3, 
-                      label=r'$s=1.0$'+label_list[0])
-        ax_c.errorbar(visit_2.t_mean, visit_2.flux_injected, 
-                      yerr=visit_2.flux_err, color='xkcd:indigo',
-                      marker='.', ls='', alpha=.5, ms=10, zorder=2,
-                      label=r'$s=0.5$'+label_list[1])
+        markers1, caps1, bars1 = ax_c.errorbar(
+                visit.t_mean, visit.flux_injected, 
+                yerr=visit.flux_err, color='xkcd:red',
+                marker='.', ls='', alpha=.75, ms=10, zorder=3, 
+                label=r'$s=1.0$'+label_list[0])
+        markser2, caps2, bars2 = ax_c.errorbar(
+                visit_2.t_mean, visit_2.flux_injected, 
+                yerr=visit_2.flux_err, color='xkcd:indigo',
+                marker='.', ls='', alpha=.5, ms=10, zorder=2,
+                label=r'$s=0.5$'+label_list[1])
+        [bar.set_alpha(.35) for bar in bars1]
+        [bar.set_alpha(.35) for bar in bars2]
         """
         if visit.FUVexists():
             ax_c.errorbar(visit.t_mean_FUV, visit.flux_injected_FUV,
@@ -1058,7 +644,7 @@ def ComparisonPlot2(fname, opticalLC):
                   ha='left', va='top', 
                   **afont, #**txtkwargsw,
                   bbox=dict(boxstyle='square', fc='w', ec='none',
-                      alpha=.3))
+                      alpha=.5))
 
         ax_c.legend(loc=1, edgecolor='black', framealpha=0.9, 
                     markerscale=1, fontsize=15)
@@ -1072,6 +658,7 @@ def ComparisonPlot2(fname, opticalLC):
         a.xaxis.get_major_ticks()[0].set_visible(False)
         a.xaxis.get_major_ticks()[-1].set_visible(False)
         a.tick_params(which='both', labelsize=17.5)
+        a.set_ylim(ymin=a.get_ylim()[0]-.05)
 
     for i in range(len(center_list)):
         center = center_list[i]
@@ -1125,6 +712,7 @@ def SlicePlot(resultarray):
     #z_values = [3, 2, 1]
     z_values = [1, .5, 0]
     colors = ['xkcd:azure', 'xkcd:blue', 'xkcd:darkblue']
+    #colors = [(1, 128/255, 0), (1, 69/255, 0), (168/255, 0, 0)]
     #Create three separate bar grapsh
     for i in range(len(mf_values)):
         idx = np.where(mfbins == mf_values[i])[0]
@@ -1139,13 +727,16 @@ def SlicePlot(resultarray):
     ax.set_xlabel(r'$GALEX$ NUV (mag)', fontsize=20)
     ax.set_ylabel('Percent Recovered', fontsize = 20)
 
-    ax.set_xlim(14, 22)
+    ax.set_xlim(15, 21)
     ax.legend(fontsize=15, loc=1,
               edgecolor='black', framealpha=.9, markerscale=.2)
 
     ax = WDutils.plotparams(ax)
     ax.tick_params(axis='both', which='both', zorder=2)
-    ax.set_yticks([25, 50, 75, 100])
+    ax.set_yticks([20, 40, 60, 80, 100])
+    ax.tick_params('x', length=4, width=1.8, which='minor')
+    ax.tick_params('x', length=8, width=2, which='major')
+    ax.xaxis.set_minor_locator(MultipleLocator(.2))
 
     plt.subplots_adjust(right=.98, bottom=.2)
     fig.savefig('SlicePlot.pdf')
@@ -1193,7 +784,7 @@ def maglist_hist(mag_array, path_array):
             source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
             visit_list = []
             for df in data:
-                visit = Visit(df, filename, source_mag)
+                visit = WDVisit.Visit(df, filename, source_mag)
                 if visit.good_df() == True: 
                     if visit.existingperiods() == False:
                         visit_list.append(visit)
@@ -1283,7 +874,135 @@ def SourceSearch(desiredmag, mf, desired_result, mag_array, path_array,
 
     #Should probably format output to a txt file
     print(sources_found)
-    
+
+#Compute max occurrence rate
+def OccurrenceRate(resultarray, mag_array, plot=False):
+
+    #Default resultarray params
+    minbin=14
+    maxbin=22
+    bs = .1
+    magbins = np.arange(minbin, maxbin+bs, bs)
+    magbins = np.array([ round(b, 1) for b in magbins ])
+    mfbins = np.arange(0, 2, .1)
+    mfbins = np.array([ round(b, 1) for b in mfbins ])
+
+    #Initialize our output arrays
+    N_excluded = np.zeros(len(mfbins))
+    N_excluded_inclination = np.zeros(len(mfbins))
+    orate = np.zeros(len(mfbins))
+    orate_inclination = np.zeros(len(mfbins))
+
+    #Iterate through each scale bin
+    for i in range(resultarray.shape[1]):
+        total = 0
+        total_inclination = 0
+        #Iterate through magnitude bins
+        for ii in range(resultarray.shape[0]):
+
+            #Find number of sources in magbin
+            binval = magbins[ii]
+            condition1 = mag_array >= binval
+            condition2 = mag_array < binval + .1
+            conditionmatch = condition1 & condition2
+            n_sources = len(idx)
+
+            #Access resultarray value
+            p_detection = resultarray[ii][i]
+            n_excluded_ii = n_sources * (p_detection/100)
+            #Computed on 85-90 degree range
+            inclination_scale = .0038
+            n_excluded_inclination = n_excluded_ii * .0038
+
+            #Add values to totals
+            total += n_excluded_ii
+            total_inclination += n_excluded_inclination
+        #Use jeffreys method to compute upper bounds
+        lowBound, highBound = proportion_confint(0, total, 
+                alpha=1-.9973, method='jeffreys')
+        lowBound2, highBound2 = proportion_confint(0, total_inclination,
+                alpha=1-.9973, method='jeffreys')
+        orate[i] = highBound * 100
+        orate_inclination[i] = highBound2 * 100
+        #Store result in output arrays
+        output[i] = total
+        output_inclination[i] = total_inclination
+
+    #Add extra value to end to make plots look nicer
+    mfbins_adjusted = np.append(mfbins, 2.0)
+    orate = np.append(orate, orate[-1])
+    output = np.append(output, output[-1])
+    orate_inclination = np.append(orate_inclination, 
+            orate_inclination[-1])
+    output_inclination = np.append(output_inclination,
+            output_inclination[-1])
+
+    #Values at 0.8 are quoted occurrence rates
+    idx_rectangle = np.where(mfbins_adjusted == .8)[0][0]
+    r_height = orate[idx_rectangle]
+    r_height_2 = orate_inclination[idx_rectangle]
+    print(f"Maximum Occurrence rate: {r_height}%")
+    print(f"Max Occurrence rate w/ Inclination: {r_height_2}%")
+    #Store output in named tuple
+    OutputTup = collections.namedtuple('OccurrenceTup', ['rate', 'rate_w_i'])
+    tup = OutputTup(r_height, r_height_2)
+    #Generate occurrence plot
+    if plot:
+        fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 4), sharex=True)
+        plt.subplots_adjust(hspace=0, left=.15, right=.85, top=.98)
+       
+        #Define colors in rgb
+        mypurple = (100/255, 0/255, 200/255)
+        myblue = (0, 0, 160/255)
+        myred = (168/255, 0, 0)
+
+        ds = 'steps-post'
+        #Double axes plots
+        ax0, ax0_2 = WDutils.DoubleY(ax0, colors=(myblue, mypurple))
+        ax0.plot(mfbins_adjusted, orate, drawstyle=ds, 
+                 color=myblue, ls='-', lw=2)
+        ax0_2.plot(mfbins_adjusted, output, drawstyle=ds, 
+                   color=mypurple, 
+                   ls='-', lw=2)
+
+        #Draw rectangle for 0.8 scale factor 
+        p = mpl.patches.Rectangle((.8, 0), width=.1, height=r_height,
+                                  edgecolor='black', lw=1, facecolor='0.8',
+                                  alpha=.6)
+        ax0.add_patch(p)
+        
+        #Set ticklocs
+        ax0.yaxis.set_major_locator(MultipleLocator(.2))
+        ax0.yaxis.set_minor_locator(MultipleLocator(.1))
+        ax0.xaxis.set_major_locator(MultipleLocator(.4))
+        ax0.xaxis.set_minor_locator(MultipleLocator(.1))
+
+        ax1, ax1_2 = WDutils.DoubleY(ax1, colors=(myblue, mypurple))
+        ax1.plot(mfbins_adjusted, orate_inclination, drawstyle=ds,
+                 color=myblue, ls='-', lw=2)
+        ax1_2.plot(mfbins_adjusted, output_inclination, drawstyle=ds, 
+                   color=mypurple, ls='-', lw=2)
+
+        p2 = mpl.patches.Rectangle((.8, 0), width=.1, height=r_height_2,
+                                  edgecolor='black', lw=1, facecolor='0.8',
+                                  alpha=.6)
+        ax1.add_patch(p2)
+
+        #ax1.yaxis.set_major_locator(MultipleLocator(10))
+        #ax1.yaxis.set_minor_locator(MultipleLocator(2))
+
+        #Axes labels
+        fig.text(.5, .02, 'Scale Factor', va='center', ha='center', 
+                 fontsize=20)
+        fig.text(.05, .5, 'Max Occurrence \nRate (%)', fontsize=20, 
+                 va='center', ha='center', rotation='vertical')
+        fig.text(.97, .5, 'N Excluded \nDetections', fontsize=20,
+                 va='center', ha='center', rotation='vertical')
+        #Default save in current directory
+        fig.savefig("OccurrencePlot.pdf")
+
+    return tup
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description=desc)
@@ -1364,6 +1083,7 @@ if __name__ == '__main__':
                           +"(3) Comparison Plot \n"
                           +"(4) Slice Plot \n"
                           +"(5) Magnitude Hist \n"
+                          +"(6) Occurence Plot \n"
                           +"---Select Plot Type---")
         if selection == '1':
             ProjectionPlot(resultarray)
@@ -1371,12 +1091,13 @@ if __name__ == '__main__':
             RecoveryPlot(resultarray)
         elif selection == '3':
             assert(os.path.isfile('comparisons.txt'))
-            ComparisonPlot2('comparisons.txt', opticalLC)
+            ComparisonPlot('comparisons.txt', opticalLC)
         elif selection == '4':
             SlicePlot(resultarray)
         elif selection == '5':
             maglist_hist(mag_array, path_array)
-
+        elif selection == '6':
+            print(OccurrenceRate(resultarray, mag_array, plot=True))
         else:
             print("Invalid selection")
     elif args.gen_array is not None:
