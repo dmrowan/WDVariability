@@ -182,7 +182,7 @@ def df_fullreduce(df):
     '''
     Additional reduction of flagged points, expt, sigmaclip
 
-    :parmam df: gPhoton output pandas DataFram
+    :parmam df: gPhoton output pandas DataFrame
 
     :type df: pandas DataFrame with columns cps_bgsub, counts, flux_bgsub, 
               flags, exptime
@@ -213,7 +213,7 @@ def df_fullreduce(df):
 #----------------------------------------------------------------------------
 
 #----------------------------------------------------------------------------
-def df_firstlast(df):
+def df_firstlast(df: object) -> object:
     '''
     If the first and last points aren't within 3 sigma, remove
 
@@ -308,6 +308,38 @@ def plotparams(ax):
     for axis in ['top', 'bottom', 'left', 'right']:
         ax.spines[axis].set_linewidth(1.5)
     return ax
+
+#----------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------
+def DoubleY(ax, colors=('black', 'black')):
+    '''
+    Create a double y axis with two seperate colors
+
+    :param ax: axes to modify
+
+    :type ax: matplotlib axes object
+
+    :param colors: 2-tuple of axes colors
+
+    :type colors: tuple length 2
+
+    :returns: two axes, modified original and new y scale
+    '''
+    if (type(colors) != tuple) or (len(colors) != 2):
+        raise TypeError("colors must be 2-tuple")
+    ax2 = ax.twinx()
+    ax.minorticks_on()
+    ax.xaxis.set_ticks_position('both')
+    for a in [ax, ax2]:
+        a.minorticks_on()
+        a.tick_params(direction='in', which='both', labelsize=15)
+        a.tick_params('both', length=8, width=1.8, which='major')
+        a.tick_params('both', length=4, width=1, which='minor')
+    ax.tick_params('y', colors=colors[0], which='both')
+    ax2.tick_params('y', colors=colors[1], which='both')
+    return ax, ax2
+        
 #----------------------------------------------------------------------------
 
 #----------------------------------------------------------------------------
@@ -516,6 +548,38 @@ def tohms(ra=0, dec=0, fancy=False):
         return r_string+d_string
 #----------------------------------------------------------------------------
 
+#----------------------------------------------------------------------------
+def coordrange(r, d, sep=2):
+    '''
+    Give ra and dec range around input coords
+
+    :param r: source ra in degrees
+    
+    :type ra: int or float
+
+    :param d: source declination in degrees
+
+    :type dec: int or float
+
+    :returns: 4-tuple of lower ra, upper ra, lower dec, upper dec in str
+
+    '''
+    ra = Angle(r, u.deg)
+    dec = Angle(d, u.deg)
+    lowerra = ra - (2*u.arcsecond)
+    upperra = ra + (2*u.arcsecond)
+    lowerdec = dec - (2*u.arcsecond)
+    upperdec = dec + (2*u.arcsecond)
+    sp = dict(sep=(' '), precision=2, pad=True)
+    print(f"{lowerra.to_string(unit=u.hour, **sp)} \n"
+          f"{upperra.to_string(unit=u.hour, **sp)} \n"
+          f"{lowerdec.to_string(unit=u.deg, **sp)} \n"
+          f"{upperdec.to_string(unit=u.deg, **sp)}")
+    return((lowerra.to_string(unit=u.hour, **sp), 
+            upperra.to_string(unit=u.hour, **sp),
+            lowerdec.to_string(unit=u.deg, **sp),
+            upperdec.to_string(unit=u.deg, **sp)))
+#----------------------------------------------------------------------------
 
 #----------------------------------------------------------------------------
 def plotASASSN_LC(ax, asassn_name):
@@ -680,3 +744,16 @@ def flux_to_mag(band, flux):
     #Calculate ab magnitude
     m_ab = -2.5*np.log10(fv) + 8.90
     return m_ab
+#----------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------
+def align_yaxis(ax1, v1, ax2, v2):
+    _, y1 = ax1.transData.transform((0, v1))
+    _, y2 = ax2.transData.transform((0, v2))
+    inv = ax2.transData.inverted()
+    _, dy = inv.transform((0, 0)) - inv.transform((0, y1-y2))
+    miny, maxy = ax2.get_ylim()
+    ax2.set_ylim(miny+dy, maxy+dy)
+
+
+
