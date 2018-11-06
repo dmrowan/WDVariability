@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from __future__ import print_function, division, absolute_import
 import argparse
+import astropy.convolution
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 from matplotlib.patheffects import withStroke
@@ -56,6 +57,7 @@ class Spectra:
 
         return self.xmin, self.xmax
 
+
     def meta_string(self,key):
         if key == 'DATE-OBS':
             s = key.title() + ": "+self.meta[key][:10]
@@ -65,6 +67,10 @@ class Spectra:
             s = key.title() + ": " + self.meta[key]
         return s
 
+    def smoothflux(self, m):
+        smoothflux = astropy.convolution.convolve(
+                self.flux, astropy.convolution.Box1DKernel(m))
+        return smoothflux
 
     def plot(self, use_cutoff=False, ax=None):
         if ax==None:
@@ -76,18 +82,20 @@ class Spectra:
 
         self.flux = [ s*(10**16) for s in self.flux ]
         self.err = [ s*(10**16) for s in self.err ]
-        ax.errorbar(self.wavelength, self.flux, yerr=self.err,
+        smoothflux = self.smoothflux(4)
+        ax.errorbar(self.wavelength, smoothflux, yerr=self.err,
                     color='xkcd:red', ecolor='gray')
         if use_cutoff:
             lower, upper = self.cutoff()
+        print(lower, upper)
         ax.set_xlim(xmin=lower, xmax=upper)
         #ax.set_yscale('log')
         try:
-            annotation = self.type + ", " + str(self.ID)
-            ax.annotate(annotation, (.9,.9), 
+            annotation = f"{self.type}\nID #{self.ID}"
+            ax.annotate(annotation, (.925,.925), 
                         xycoords='axes fraction', color='xkcd:red',
                         fontsize=20, ha='center', va='top',
-                        **afont, **txtkwargsw)
+                        **afont, **txtkwargsw, bbox=dict(boxstyle='square', fc='.9', ec='.2', lw=2))
         except:
             print("No label num / classification given")
 
@@ -101,30 +109,32 @@ class Spectra:
     
 def main():
     
+   
     s2 = Spectra('GAIA-14766-58321.3017-SNIFS.dat')
-    s2.set_xmin(3200)
-    s2.set_xmax(8900)
+    s2.set_xmin(3600)
+    s2.set_xmax(7200)
     s2.set_ID(35)
     s2.set_type('DBV')
     print(s2.meta)
     s = Spectra('GaiaDR2-39098-58301.585-SNIFS.dat')
-    s.set_xmin(3200)
-    s.set_xmax(8900)
+    s.set_xmin(3600)
+    s.set_xmax(7200)
     s.set_ID(2)
     s.set_type('DAV')
-    #print(s.meta)
-    """
+    print(s.meta)
+    
 
+    """
     s = Spectra('SDSS-J220823.66-011534.1-SNIFS1.dat')
     s.set_ID(54)
-    s.set_xmin(3200)
-    s.set_xmax(8900)
+    s.set_xmin(3600)
+    s.set_xmax(7000)
     s.set_type('DAV')
 
     s2 = Spectra('SDSS-J234829.09-092500.9-SNIFS2.dat')
     s2.set_ID(61)
-    s2.set_xmin(3200)
-    s2.set_xmax(8900)
+    s2.set_xmin(3600)
+    s2.set_xmax(7000)
     s2.set_type('DAV')
     """
 
@@ -134,17 +144,18 @@ def main():
     axT1.xaxis.set_ticklabels([])
     
     for a in [3970, 4102, 4340, 4861, 6567]:
-        axT1.axvspan(a-10, a+10, color='xkcd:violet', alpha=.25, 
-                     label='H lines')
-        axT2.axvspan(a-10, a+10, color='xkcd:violet', alpha=.25)
+        myp = 'xkcd:violet'
+        axT1.axvspan(a-10, a+10, color=myp, alpha=.5, 
+                     label='H lines', zorder=5)
+        axT2.axvspan(a-10, a+10, color=myp, alpha=.5, zorder=5)
         #axT1.axvline(a, color='xkcd:violet', alpha=.25, label='H lines')
         #axT2.axvline(a, color='xkcd:violet', alpha=.25)
 
     afont = {'fontname':'Keraleeyam'}
     for a in [ 3819,3888, 4471, 4713,  5876, 6678]:
-        axT1.axvspan(a-10, a+10, color='xkcd:azure', alpha=.25, 
-                     label='He I lines')
-        axT2.axvspan(a-10, a+10, color='xkcd:azure', alpha=.25)
+        axT1.axvspan(a-10, a+10, color='xkcd:azure', alpha=.35, 
+                     label='He I lines', zorder=5)
+        axT2.axvspan(a-10, a+10, color='xkcd:azure', alpha=.35, zorder=5)
         #axT1.axvline(a, color='xkcd:azure', alpha=.25, label='He I lines')
         #axT2.axvline(a, color='xkcd:azure', alpha=.25)
     #bbox_circle=dict(boxstyle='circle, pad=.1', fc='w', ec='w', alpha=1)
@@ -159,7 +170,6 @@ def main():
                 edgecolor='black', framealpha=.9,
                 markerscale=.2)
 
-    
 
     plt.subplots_adjust(hspace=0, top=.98, right=.98)
     figT.text(.5, .05, 'Wavelength (Å)', fontsize=30, ha='center', 
