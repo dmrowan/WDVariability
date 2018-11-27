@@ -7,15 +7,24 @@ import argparse
 import pandas as pd
 import matplotlib.gridspec as gs
 from gPhoton import gphoton_utils
-from WDranker_2 import badflag_bool
 import subprocess
 from matplotlib.patheffects import withStroke
+import WDutils
 
 #Dom Rowan REU 2018
 
 desc="""
 WDPlot_pulastor: Make LC plots for pulsators
 """
+#Simple function to force y axis alignment
+def align_yaxis(ax1, v1, ax2, v2):
+    _, y1 = ax1.transData.transform((0, v1))
+    _, y2 = ax2.transData.transform((0, v2))
+    inv = ax2.transData.inverted()
+    _, dy = inv.transform((0, 0)) - inv.transform((0, y1-y2))
+    miny, maxy = ax2.get_ylim()
+    ax2.set_ylim(miny+dy, maxy+dy)
+
 #Main plotting function
 def main(generate):
     assert(os.path.isfile("IS.csv"))
@@ -86,13 +95,13 @@ def main(generate):
     fig = plt.figure(figsize=(16,nfigs*2.5))
     gs1 = gs.GridSpec(nfigs,2) 
     gs1.update(hspace=0, wspace=0.2)
-    fig.text(.02, .5, 'Flux (MMI)', va='center', 
+    fig.text(.02, .5, 'Relative Flux (%)', va='center', 
              rotation='vertical', fontsize=30)
-    fig.text(.5, .05, 'Minutes from Start', 
-             va='center', fontsize=30, ha='center')
+    fig.text(.5, .02, 'Time Elapsed (min)', 
+             va='top', fontsize=30, ha='center')
     afont = {'fontname':'Keraleeyam'}
 
-    plt.subplots_adjust(top=.98, right=.9)
+    plt.subplots_adjust(top=.98, right=.9, bottom=.05)
     myeffectw = withStroke(foreground="black", linewidth=2) 
     txtkwargsw = dict(path_effects=[myeffectw]) 
     figfull = False
@@ -103,6 +112,7 @@ def main(generate):
     starttimes = []
     for idx_plot in range(len(pulsatornames_sorted)):
         nleft = len(pulsatornames_sorted) - idx_plot
+        #This is literally the worst code ever
         if figfull:
             if nleft < 2*nfigs:
                 if nleft % 2 != 0:
@@ -111,15 +121,23 @@ def main(generate):
                     nfigs = int(nleft / 2)
                 lastfig = True
             plt.gcf().clear()
-            fig = plt.figure(figsize=(16,nfigs*2.5))
+            if not lastfig:
+                fig = plt.figure(figsize=(16,nfigs*2.5))
+            else:
+                fig = plt.figure(figsize=(16, nfigs*2.5+1))
             gs1 = gs.GridSpec(nfigs,2) 
             gs1.update(hspace=0, wspace=0.2)
-            fig.text(.02, .5, 'Flux MMI', va='center', 
+            fig.text(.02, .5, 'Relative Flux (%)', va='center', 
                      rotation='vertical', fontsize=30)
-            fig.text(.5, .05, 'Minutes from Start', 
-                     va='center', fontsize=30, ha='center')
+            if not lastfig:
+                fig.text(.5, .02, 'Time Elapsed (min)', 
+                         va='center', fontsize=30, ha='center')
+                plt.subplots_adjust(top=.98, right=.9, bottom=.05)
+            else:
+                fig.text(.5, .05, 'Time Elapsed (min)',
+                         va='center', fontsize=30, ha='center')
+                plt.subplots_adjust(top=.98, right=.9)
             afont = {'fontname':'Keraleeyam'}
-            plt.subplots_adjust(top=.98, right=.9)
             figfull=False
 
         name = pulsatornames_sorted[idx_plot]
@@ -169,8 +187,10 @@ def main(generate):
         ###See if we have any data in the other band###
         if band=='NUV':
             csvpath_other = csvpath.replace('N', 'F')
+            #csvpath_other = f"/home/dmrowan/WhiteDwarfs/GALEXphot/LCs/{name}-FUV.csv"
         else:
             csvpath_other = csvpath.replace('F', 'N')
+            #csvpath_other = f"/home/dmrowan/WhiteDwarfs/GALEXphot/LCs/{name}-NUV.csv"
         #Look for file in GALEXphot/LCs
         if os.path.isfile(csvpath_other):
             other_band_exists = True
@@ -186,7 +206,7 @@ def main(generate):
                     | (alldata_other['cps_bgsub_err'] > 10e10) 
                     | (alldata_other['counts'] < 1) 
                     | (alldata_other['counts'] > 100000) )[0]
-            idx_other_flagged_bool = [ badflag_bool(x) 
+            idx_other_flagged_bool = [ WDutils.badflag_bool(x) 
                                        for x in alldata_other['flags'] ]
             idx_other_flagged = np.where(
                     np.array(idx_other_flagged_bool) == True)[0]
@@ -215,10 +235,10 @@ def main(generate):
             alldata_medianflux_other = np.median(alldata_flux_bgsub_other)
             alldata_flux_bgsub_other = (( 
                     alldata_flux_bgsub_other / alldata_medianflux_other ) 
-                    - 1.0) * 1000
+                    - 1.0) * 100
             alldata_flux_bgsub_err_other = (
                     alldata_other['flux_bgsub_err'] 
-                    / alldata_medianflux_other) * 1000
+                    / alldata_medianflux_other) * 100
 
 
         ###Break the alldata table into exposure groups### 
@@ -245,7 +265,7 @@ def main(generate):
         stdev = np.std(df['flux_bgsub'])
         bluepoints = np.where( (df['flux_bgsub'] 
                                 - np.nanmean(df['flux_bgsub'])) > 5*stdev )[0]
-        flag_bool_vals = [ badflag_bool(x) for x in df['flags'] ]
+        flag_bool_vals = [ WDutils.badflag_bool(x) for x in df['flags'] ]
         redpoints1 = np.where(np.array(flag_bool_vals) == True)[0]
         redpoints2 = np.where(df['exptime'] < 5)[0]
         redpoints = np.unique(np.concatenate([redpoints1, redpoints2]))
@@ -273,12 +293,12 @@ def main(generate):
             df_reduced = df_reduced.drop(index=df_reduced.index[-1])
 
         
-        #Convert units to flux MMI
+        #Convert units to relative flux 
         flux_bgsub = df_reduced['flux_bgsub']
         flux_bgsub_median = np.median(flux_bgsub)
-        flux_bgsub = (( flux_bgsub / flux_bgsub_median ) - 1.0) * 1000
+        flux_bgsub = (( flux_bgsub / flux_bgsub_median ) - 1.0) * 100
         flux_bgsub_err = (df_reduced['flux_bgsub_err'] 
-                         / flux_bgsub_median) * 1000
+                         / flux_bgsub_median) * 100
         t_mean = df_reduced['t_mean']
 
         #Match with other band
@@ -291,20 +311,20 @@ def main(generate):
             flux_bgsub_other = alldata_flux_bgsub_other[idx_eg_other]
             flux_bgsub_err_other = alldata_flux_bgsub_err_other[idx_eg_other]
 
-        #Flux MMI correction
+        #Flux correction
         if len(redpoints) != 0:
             flux_bgsub_red = df['flux_bgsub'][redpoints]
             flux_bgsub_red = ((flux_bgsub_red / flux_bgsub_median) 
-                    - 1.0) * 1000
+                    - 1.0) * 100
             flux_bgsub_err_red = (df['flux_bgsub_err'][redpoints] 
-                                 / flux_bgsub_median) * 1000
+                                 / flux_bgsub_median) * 100
             t_mean_red = df['t_mean'][redpoints]
         if len(bluepoints) != 0:
             flux_bgsub_blue = df['flux_bgsub'][bluepoints]
             flux_bgsub_blue = ((flux_bgsub_blue / flux_bgsub_median) 
-                    - 1.0) * 1000
+                    - 1.0) * 100
             flux_bgsub_err_blue = (df['flux_bgsub_err'][bluepoints] 
-                    / flux_bgsub_median) * 1000
+                    / flux_bgsub_median) * 100
             t_mean_blue = df['t_mean'][bluepoints]
 
         #Subplot for LC
@@ -346,6 +366,7 @@ def main(generate):
         """
         t0 = min(jd_t_mean)
         jd_t_mean = [ t - t0 for t in jd_t_mean ]
+        ms = 10
 
         ax1 = plt.subplot(gs1[plot_coords])
         ax1.set_xlim(xmin = -.00125, xmax=.02025)
@@ -361,51 +382,59 @@ def main(generate):
         ax1.xaxis.set_ticks_position('both')
         ax1.errorbar(jd_t_mean, flux_bgsub, yerr=flux_bgsub_err, 
                     color=bandcolors[band], marker='.', ls='', 
-                    zorder=4, label=band, alpha=.5)
+                    zorder=4, label=band, alpha=.5, ms=ms)
         ax1.axhline(alpha=.3, ls='dotted', color='black')
         if len(redpoints) != 0: 
             jd_t_mean_red = [ t - t0 for t in jd_t_mean_red ]
             ax1.errorbar(jd_t_mean_red, flux_bgsub_red, 
                         yerr=flux_bgsub_err_red, color='#808080', 
                         marker='.', ls='', zorder=2, alpha=.5, 
-                        label='Flagged')
+                        label='Flagged', ms=ms)
         if len(bluepoints) != 0: 
             jd_t_mean_blue = [ t - t0 for t in jd_t_mean_blue ] 
             ax1.errorbar(jd_t_mean_blue, flux_bgsub_blue, 
                         yerr=flux_bgsub_err_blue, color='green', 
                         marker='.', ls='', zorder=3, alpha=.5, 
-                        label='SigmaClip')
+                        label='SigmaClip', ms=ms)
         if other_band_exists:
-            ax2 = ax1.twinx()
-            ax2.minorticks_on()
-            ax2.tick_params(direction='in', which='both', labelsize=12)
             if len(flux_bgsub_other) != 0:
+                ax2 = ax1.twinx()
+                ax2.minorticks_on()
+                ax2.tick_params(direction='in', which='both', labelsize=12)
                 jd_t_mean_other = [ t - t0 for t in jd_t_mean_other ]
                 ax2.errorbar(jd_t_mean_other, 
                             flux_bgsub_other, 
                             yerr=flux_bgsub_err_other, 
                             color=bandcolors[band_other], marker='.', 
-                            ls='', zorder=1, label=band_other, alpha=.4)
+                            ls='', zorder=1, label=band_other,
+                            alpha=.4, ms=ms)
 
-            ax2.tick_params(axis='y', colors=bandcolors[band_other], which='both')
+                ax2.tick_params(
+                        axis='y', colors=bandcolors[band_other], which='both')
         #Plot params
         #if idx_plot==len(pulsatornames)-1:
             #plt.xlabel('Time JD - '+str(jd_min_time), fontsize=20)
             #ax.set_xlabel("JD from start", fontsize=20)
             
         if other_band_exists and (len(flux_bgsub_other) != 0):
-            ax1.set_ylim(ymax = max(flux_bgsub) * 1.2)
-            ax2.set_ylim(ymax = max(flux_bgsub_other) * 1.2)
-        else:
-            ax1.set_ylim(ymax = max(flux_bgsub)*1.2)
+            ax2.set_ylim(ymax = max(flux_bgsub_other) * 1.2,
+                         ymin = min(flux_bgsub_other) * 1.2)
+
+        ax1.set_ylim(ymax = max(flux_bgsub) * 1.2, 
+                     ymin = min(flux_bgsub) * 1.2)
+
+        if other_band_exists and (len(flux_bgsub_other) != 0):
+            align_yaxis(ax1, 0, ax2, 0)
+
 
         if objecttype == 'Pulsator':
             typecolor='xkcd:red'
         else:
             typecolor='xkcd:violet'
-        ax1.annotate(str(labelnum), xy=(.95, .85), xycoords='axes fraction', 
+        ax1.text(.95, .85, str(labelnum), transform=ax1.transAxes, 
                     color=typecolor, fontsize=25, ha='center', va='center', 
-                    **afont, **txtkwargsw, zorder=10)
+                    **afont, **txtkwargsw, zorder=10,
+                    bbox=dict(boxstyle='square', fc="w", ec="w", alpha=.4))
         #ax.annotate('{:.2f}'.format(round(t0, 2)), xy=(.05, .12), xycoords='axes fraction', color='black', fontsize=14, horizontalalignment='left', verticalalignment='center', **txtkwargs)
         starttimes.append( '{:.2f}'.format(round(t0, 2)))
 
@@ -432,7 +461,7 @@ def main(generate):
    
         if plot_coords == coords[-1]: 
             figfull=True
-            fig.tight_layout(rect=[.03,0,1,1])
+            #fig.tight_layout(rect=[.03,0,1,1])
             fig.savefig("LCappendix"+str(fignumber)+".pdf")
             fignumber += 1
 
