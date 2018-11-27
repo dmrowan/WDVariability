@@ -34,31 +34,6 @@ WD_Recovery: Procedure for injecting and recovering synthetic optical
 data from WD-1145.
 """
 
-def calculate_jd(galex_time):
-    """
-    Calculates the Julian date, in the TDB time standard, given a GALEX time.
-
-    :param galex_time: A GALEX timestamp.
-
-    :type galex_time: float
-
-    :returns: float -- The time converted to a Julian date, in the TDB
-        time standard.
-    """
-
-    if np.isfinite(galex_time):
-        # Convert the GALEX timestamp to a Unix timestamp.
-        this_unix_time = Time(galex_time + 315964800., format="unix",
-                              scale="utc")
-
-        # Convert the Unix timestamp to a Julian date, measured in the
-        # TDB standard.
-        this_jd_time = this_unix_time.tdb.jd
-    else:
-        this_jd_time = np.nan
-
-    return this_jd_time
-
 def FindCutoff(path_array, percentile):
     assert(os.path.isfile('AllData.csv'))
     df = pd.read_csv('AllData.csv')
@@ -123,6 +98,15 @@ def genMagLists(plot=False):
                     data = WDutils.dfsplit(alldata, 100)
                     #See if we have any good visits
                     for df in data:
+                        visit = WDVisit.Visit(df, filename, mag=mag)
+                        if visit.good_df() == True:
+                            if visit.existingperiods() == False:
+                                if visit.high_rank() == False:
+                                    mag_list.append(mag)
+                                    path_list.append(filename)
+                                    break
+
+                        """
                         if len(df['t1']) == 0:
                             continue
                         else:
@@ -136,6 +120,7 @@ def genMagLists(plot=False):
                                 mag_list.append(mag)
                                 path_list.append(filename)
                                 break
+                        """
                     continue
     median = np.median(mag_list)
     print("Median magnitude --- ", median)
@@ -152,12 +137,12 @@ def genMagLists(plot=False):
 
     #Save as pickle
     
-    print("saving pickle")
+    print("Saving pickle")
     print(len(mag_list), len(path_list))
     mag_array = np.array(mag_list)
     path_array = np.array(path_list)
     tup = (mag_array,path_array)
-    with open('MagList2.pickle', 'wb') as handle:
+    with open('MagList3.pickle', 'wb') as handle:
         pickle.dump(tup, handle)
 
 
@@ -189,7 +174,8 @@ def selectLC(binvalue, binsize, mag_array, path_array):
         visit = WDVisit.Visit(df, filename, source_mag)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
-                visit_list.append(visit)
+                if visit.high_rank() == False:
+                    visit_list.append(visit)
 
     #If there were no good visits, pick a new source
     if len(visit_list) == 0:
@@ -246,9 +232,6 @@ def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
     tup = (mag, source_mag, mf, result)
 
     #Generate output string
-    outputstr = (str(source_mag)+","
-                +str(mf)+","
-                +str(result))
     outputstr = f"{source_mag},{mf},{result},{filename},{visit_i[0]}"
 
     #Append to outputfile
@@ -497,7 +480,7 @@ def RecoveryPlot(resultarray):
     ax0.set_xticks([x for x in np.arange(14, 22, 1)])
     ax0 = WDutils.plotparams(ax0)
     ax0.xaxis.get_major_ticks()[0].set_visible(False)
-    ax0.set_xlim(xmin=15)
+    ax0.set_xlim(xmin=15, xmax=21)
 
     divider = make_axes_locatable(ax0)
     cax = divider.append_axes("right", size="5%", pad=.1)
@@ -694,7 +677,7 @@ def ComparisonPlot(fname, opticalLC):
        
 
     fig.savefig("RecoveryCompare.pdf")
-def SlicePlot(resultarray):
+def SlicePlot(resultarray, mag_array):
     #Define our axes
     minbin=14
     maxbin=22
@@ -706,57 +689,70 @@ def SlicePlot(resultarray):
     mfbins = np.array([ round(b, 1) for b in mfbins ])
 
     #Subplot for magnitude bar
-    fig, ax = plt.subplots(1, 1, figsize=(8.2, 3))
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(5, 6))
+    plt.subplots_adjust(hspace=0, left=.17, right=.98, top=.97, bottom=.12)
     #mf_values = [.5, 1, 1.5]
     mf_values = [.5, 1, 1.5]
     #z_values = [3, 2, 1]
     z_values = [1, .5, 0]
-    colors = ['xkcd:azure', 'xkcd:blue', 'xkcd:darkblue']
-    #colors = [(1, 128/255, 0), (1, 69/255, 0), (168/255, 0, 0)]
-    #Create three separate bar grapsh
+    colors = ['#4400F4', '#0000FF', '#7E00D8', '#A000BC', '#CF007E', '#FF0000']
+    slicecolors = [colors[1], colors[2], colors[4]]
+    #Create three separate bar graphs
     for i in range(len(mf_values)):
         idx = np.where(mfbins == mf_values[i])[0]
         slicevalues = resultarray.T[idx]
         
         ax.bar(magbins+.05, slicevalues[0], 
-               label=r'$s='+str(mf_values[i])+r'$',
-               width=.1, edgecolor='black', zorder=z_values[i],
-               color=colors[i])
+               #label=r'$s='+str(mf_values[i])+r'$',
+               label=f"{r'$s='}{mf_values[i]}{r'$'}",
+               width=.1, edgecolor='.15', zorder=z_values[i],
+               color=slicecolors[i])
 
     
-    ax.set_xlabel(r'$GALEX$ NUV (mag)', fontsize=20)
-    ax.set_ylabel('Percent Recovered', fontsize = 20)
+    ax2.hist(mag_array, bins=magbins, color=colors[2], 
+             linewidth=1.2, edgecolor='black', zorder=1)
 
-    ax.set_xlim(15, 21)
+    fig.text(.5, .05, r'$GALEX$ NUV (mag)', fontsize=20,
+             ha='center', va='center')
+    ax.set_ylabel('Percent Recovered', fontsize = 20)
+    ax2.set_yticks([50, 100, 150, 200, 250, 300])
+    ax2.set_ylabel("N WD", fontsize=20)
+
     ax.legend(fontsize=15, loc=1,
               edgecolor='black', framealpha=.9, markerscale=.2)
 
-    ax = WDutils.plotparams(ax)
-    ax.tick_params(axis='both', which='both', zorder=2)
     ax.set_yticks([20, 40, 60, 80, 100])
-    ax.tick_params('x', length=4, width=1.8, which='minor')
-    ax.tick_params('x', length=8, width=2, which='major')
-    ax.xaxis.set_minor_locator(MultipleLocator(.2))
 
-    plt.subplots_adjust(right=.98, bottom=.2)
+    ax.set_xlim(xmin=15, xmax=21)
+    ax2.set_xlim(xmin=15, xmax=21)
+    ax = WDutils.plotparams(ax)
+    ax2 = WDutils.plotparams(ax2)
+    ax.set_xticklabels([])
+
+    for a in [ax, ax2]:
+        a.tick_params('both', length=4, width=1.8, which='minor')
+        a.tick_params('both', length=8, width=2.6, which='major')
+        a.xaxis.set_minor_locator(MultipleLocator(.2))
+   
+
     fig.savefig('SlicePlot.pdf')
 
 
 #Histogram of magnitudes and bar graph of n visits
 def maglist_hist(mag_array, path_array):
     #Generate Figure
-    fig = plt.figure(figsize=(12, 6))
-    gs1 = gs.GridSpec(2, 1, hspace=0)
-    fig.text(.5, .05, r'$GALEX$ NUV (mag)', va='center', ha='center',
-             fontsize=30)
+    fig, ax = plt.subplots(1, 1, figsize=(12, 3))
+    ax.set_xlabel(r'$GALEX$ NUV (mag)', fontsize=20)
+
+
+    colors = ['#4400F4', '#0000FF', '#7E00D8', '#A000BC', '#CF007E', '#FF000']
 
     #Top axes is a histogram of sources binned by magnitude
-    ax0 = plt.subplot2grid((2, 1), (0, 0), colspan=1, rowspan=1)
     bins = np.array([ round(b, 1) for b  in np.arange(14, 21.1, .1) ])
-    ax0.hist(mag_array, bins=bins, color='xkcd:red', linewidth=1.2, 
+    ax.hist(mag_array, bins=bins, color=colors[0], linewidth=1.2, 
             edgecolor='black')
-    ax0.set_xlim(14, 21)
-    ax0 = WDutils.plotparams(ax0)
+    ax.set_xlim(14, 21)
+    ax = WDutils.plotparams(ax)
 
     #Pickle load - so we don't have to re-run to create plots
     if os.path.isfile('visitarray.pickle'):
@@ -801,11 +797,13 @@ def maglist_hist(mag_array, path_array):
             visit_mags.append(mag_array[i])
 
     #Bottom axes: bar graph over same xrange as hist
-    ax1 = plt.subplot2grid((2, 1), (1, 0), colspan=1, rowspan=1)
-    ax1.hist(visit_mags, bins=bins, color='xkcd:darkblue', lw=1.2, 
+    ax, ax1 = WDutils.DoubleY(ax, colors=(colors[0], colors[4]))
+    ax1.hist(visit_mags, bins=bins, color=colors[3], lw=1.2, 
              edgecolor='black')
     ax1.set_xlim(14, 21)   
     ax1 = WDutils.plotparams(ax1)
+    ax.set_ylabel('N WD Sources', fontsize=20, color=colors[0])
+    ax1.set_ylabel('N GALEX Visits', fontsize=20, color=colors[3])
 
     fig.savefig('MagnitudeHistograms.pdf')
 
@@ -838,9 +836,9 @@ def DetectableTransits(opticalLC, threshold):
 
 #Find sources for comparision plot easily
 def SourceSearch(desiredmag, mf, desired_result, mag_array, path_array, 
-                 opticalLC, center=105):
-    lowermag = desiredmag - 0.5
-    uppermag = desiredmag + 0.5
+                 opticalLC, center=185, mrange=1):
+    lowermag = desiredmag - mrange
+    uppermag = desiredmag + mrange
     mag_range = [ round(b, 1) for b in np.arange(
         desiredmag-0.5, desiredmag+0.5, 0.1) ]
     desiredbin = np.random.choice(mag_range)
@@ -870,7 +868,8 @@ def SourceSearch(desiredmag, mf, desired_result, mag_array, path_array,
                 visit.inject(opticalLC, mf, center=185)
                 result = visit.assessrecovery()
                 if result == desired_result:
-                    sources_found.append([filename, visit_i[0]])
+                    if [filename, visit_i[0]] not in sources_found:
+                        sources_found.append([filename, visit_i[0]])
 
     #Should probably format output to a txt file
     print(sources_found)
@@ -905,6 +904,7 @@ def OccurrenceRate(resultarray, mag_array, plot=False):
             condition1 = mag_array >= binval
             condition2 = mag_array < binval + .1
             conditionmatch = condition1 & condition2
+            idx = np.where(conditionmatch)[0]
             n_sources = len(idx)
 
             #Access resultarray value
@@ -925,44 +925,51 @@ def OccurrenceRate(resultarray, mag_array, plot=False):
         orate[i] = highBound * 100
         orate_inclination[i] = highBound2 * 100
         #Store result in output arrays
-        output[i] = total
-        output_inclination[i] = total_inclination
+        N_excluded[i] = total
+        N_excluded_inclination[i] = total_inclination
 
     #Add extra value to end to make plots look nicer
     mfbins_adjusted = np.append(mfbins, 2.0)
     orate = np.append(orate, orate[-1])
-    output = np.append(output, output[-1])
+    N_excluded = np.append(N_excluded, N_excluded[-1])
     orate_inclination = np.append(orate_inclination, 
             orate_inclination[-1])
-    output_inclination = np.append(output_inclination,
-            output_inclination[-1])
+    N_excluded_inclination = np.append(N_excluded_inclination,
+            N_excluded_inclination[-1])
 
     #Values at 0.8 are quoted occurrence rates
     idx_rectangle = np.where(mfbins_adjusted == .8)[0][0]
     r_height = orate[idx_rectangle]
     r_height_2 = orate_inclination[idx_rectangle]
+    n_height = N_excluded[idx_rectangle]
     print(f"Maximum Occurrence rate: {r_height}%")
     print(f"Max Occurrence rate w/ Inclination: {r_height_2}%")
+    print(f"N Excluded: {n_height}")
     #Store output in named tuple
     OutputTup = collections.namedtuple('OccurrenceTup', ['rate', 'rate_w_i'])
     tup = OutputTup(r_height, r_height_2)
     #Generate occurrence plot
     if plot:
-        fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 4), sharex=True)
-        plt.subplots_adjust(hspace=0, left=.15, right=.85, top=.98)
+        #fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(8.2, 4), sharex=True)
+        fig, ax0 = plt.subplots(1, 1, figsize=(6, 2.7))
+        #plt.subplots_adjust(hspace=0, left=.15, right=.85, top=.98)
+        plt.subplots_adjust(left=.17, right=.85, top=.96, bottom=.21)
        
         #Define colors in rgb
         mypurple = (100/255, 0/255, 200/255)
         myblue = (0, 0, 160/255)
         myred = (168/255, 0, 0)
 
+        colors = [np.array([82, 0, 239])/255, 
+                  np.array([145, 0, 202])/255, 
+                  np.array([202, 0, 133])/255]
         ds = 'steps-post'
         #Double axes plots
-        ax0, ax0_2 = WDutils.DoubleY(ax0, colors=(myblue, mypurple))
+        ax0, ax0_2 = WDutils.DoubleY(ax0, colors=(colors[0], colors[1]))
         ax0.plot(mfbins_adjusted, orate, drawstyle=ds, 
-                 color=myblue, ls='-', lw=2)
-        ax0_2.plot(mfbins_adjusted, output, drawstyle=ds, 
-                   color=mypurple, 
+                 color=colors[0], ls='-', lw=2)
+        ax0_2.plot(mfbins_adjusted, N_excluded, drawstyle=ds, 
+                   color=colors[1], 
                    ls='-', lw=2)
 
         #Draw rectangle for 0.8 scale factor 
@@ -972,32 +979,16 @@ def OccurrenceRate(resultarray, mag_array, plot=False):
         ax0.add_patch(p)
         
         #Set ticklocs
-        ax0.yaxis.set_major_locator(MultipleLocator(.2))
-        ax0.yaxis.set_minor_locator(MultipleLocator(.1))
+        #ax0.yaxis.set_major_locator(MultipleLocator(.2))
+        #ax0.yaxis.set_minor_locator(MultipleLocator(.1))
         ax0.xaxis.set_major_locator(MultipleLocator(.4))
         ax0.xaxis.set_minor_locator(MultipleLocator(.1))
 
-        ax1, ax1_2 = WDutils.DoubleY(ax1, colors=(myblue, mypurple))
-        ax1.plot(mfbins_adjusted, orate_inclination, drawstyle=ds,
-                 color=myblue, ls='-', lw=2)
-        ax1_2.plot(mfbins_adjusted, output_inclination, drawstyle=ds, 
-                   color=mypurple, ls='-', lw=2)
+        ax0.set_xlabel("Scale Factor", fontsize=20)
+        ax0.set_ylabel("Max Occurrence \nRate (%)", fontsize=20)
+        ax0_2.set_ylabel("N Excluded \nDetections", fontsize=20)
+        ax0.set_xlim(xmin=0, xmax=2.0)
 
-        p2 = mpl.patches.Rectangle((.8, 0), width=.1, height=r_height_2,
-                                  edgecolor='black', lw=1, facecolor='0.8',
-                                  alpha=.6)
-        ax1.add_patch(p2)
-
-        #ax1.yaxis.set_major_locator(MultipleLocator(10))
-        #ax1.yaxis.set_minor_locator(MultipleLocator(2))
-
-        #Axes labels
-        fig.text(.5, .02, 'Scale Factor', va='center', ha='center', 
-                 fontsize=20)
-        fig.text(.05, .5, 'Max Occurrence \nRate (%)', fontsize=20, 
-                 va='center', ha='center', rotation='vertical')
-        fig.text(.97, .5, 'N Excluded \nDetections', fontsize=20,
-                 va='center', ha='center', rotation='vertical')
         #Default save in current directory
         fig.savefig("OccurrencePlot.pdf")
 
@@ -1030,6 +1021,8 @@ if __name__ == '__main__':
                         default=False, action='store_true')
     parser.add_argument("--gen_array", help="Generate result array pickle",
                         default=None, type=str)
+    parser.add_argument("--gen_maglist", help="Generate MagList",
+                        default=False, action='store_true')
     args=parser.parse_args()
 
     #Argument assertions
@@ -1039,10 +1032,13 @@ if __name__ == '__main__':
     assert( (args.bs >= .1) and (args.bs <=2 ) )
     assert(args.p >= 1)
 
+    if args.gen_maglist:
+        genMagLists(plot=False)
+
     #Pickle loads
     with open('1145LC.pickle', 'rb') as p:
         opticalLC = pickle.load(p)
-    with open('MagList2.pickle', 'rb') as p2:
+    with open('MagList3.pickle', 'rb') as p2:
         MagList = pickle.load(p2)
     if os.path.isfile('resultarray.pickle'):
         with open('resultarray.pickle', 'rb') as p3:
@@ -1093,7 +1089,7 @@ if __name__ == '__main__':
             assert(os.path.isfile('comparisons.txt'))
             ComparisonPlot('comparisons.txt', opticalLC)
         elif selection == '4':
-            SlicePlot(resultarray)
+            SlicePlot(resultarray, mag_array)
         elif selection == '5':
             maglist_hist(mag_array, path_array)
         elif selection == '6':
@@ -1102,6 +1098,8 @@ if __name__ == '__main__':
             print("Invalid selection")
     elif args.gen_array is not None:
         gen_resultarray(args.gen_array)
+    elif args.gen_maglist:
+        print("MagList generated")
     else:
         wrapper(mag_array, path_array, opticalLC, args.iter, args.ml,
                 args.mu, args.bs, args.p, args.output, args.v)
