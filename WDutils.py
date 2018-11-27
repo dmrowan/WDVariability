@@ -3,6 +3,7 @@ from __future__ import print_function, division, absolute_import
 from astropy.coordinates import Angle
 from astropy.stats import LombScargle
 from astropy import units as u
+from astropy.time import Time
 import collections
 import numpy as np
 import pandas as pd
@@ -754,6 +755,31 @@ def align_yaxis(ax1, v1, ax2, v2):
     _, dy = inv.transform((0, 0)) - inv.transform((0, y1-y2))
     miny, maxy = ax2.get_ylim()
     ax2.set_ylim(miny+dy, maxy+dy)
+#----------------------------------------------------------------------------
 
+#----------------------------------------------------------------------------
+def calculate_jd(galex_time):
+    """
+    Calculates the Julian date, in the TDB time standard, given a GALEX time.
 
+    :param galex_time: A GALEX timestamp.
 
+    :type galex_time: float
+
+    :returns: float -- The time converted to a Julian date, in the TDB
+        time standard.
+    """
+
+    if np.isfinite(galex_time):
+        # Convert the GALEX timestamp to a Unix timestamp.
+        this_unix_time = Time(galex_time + 315964800., format="unix",
+                              scale="utc")
+
+        # Convert the Unix timestamp to a Julian date, measured in the
+        # TDB standard.
+        this_jd_time = this_unix_time.tdb.jd
+    else:
+        this_jd_time = np.nan
+
+    return this_jd_time
+#----------------------------------------------------------------------------
