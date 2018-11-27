@@ -10,12 +10,10 @@ import pandas as pd
 from progressbar import ProgressBar
 import random
 random.seed()
-from scipy.optimize import curve_fit
-from scipy.optimize import leastsq
+from scipy.optimize import least_squares
 import WDranker_2
 import WDutils
-from WD_Recovery import calculate_jd, selectOptical
-import time
+from WD_Recovery import selectOptical
 
 # Dom Rowan REU 2018
 
@@ -29,7 +27,7 @@ class Visit:
             if c not in df.columns:
                 raise TypeError("df must be formatted from gPhoton output")
                 break
-        if (type(filename) != str) or (filename[-3:] != 'csv'):
+        if (not isinstance(filename, str)) or (filename[-3:] != 'csv'):
             raise TypeError("filename must be string ending in .csv")
         self.df = df
         self.timereset = False
@@ -49,13 +47,18 @@ class Visit:
                 self.band = 'NUV'
                 self.otherband = 'FUV'
                 self.nuv_filename = self.filename
-                self.fuv_filename = self.nuv_filename.replace('FUV', 'NUV')
+                self.fuv_filename = self.nuv_filename.replace('NUV', 'FUV')
             
-        self.cEXP()
-        self.original_median = self.flux_median()
+        if self.good_df():
+            self.cEXP()
+            self.original_median = self.flux_median()
 
         self.fuv_path = 'FUV/'
         self.nuv_path = ""
+
+        # cutoff = FindCutoff(95)
+        self.cutoff = .638  # Don't waste time loading in alldata
+        # print("Rank --- ", C, "Cutoff --- ", cutoff)
 
     # Calculate exposure using c_EXP metric
     def cEXP(self):
@@ -92,7 +95,7 @@ class Visit:
     # Reset time to minutes from start
     def reset_time(self):
         for i in range(len(self.df['t_mean'])):
-            jd = calculate_jd(self.df['t_mean'][i])
+            jd = WDutils.calculate_jd(self.df['t_mean'][i])
 
             if i == 0:
                 tmin = jd
@@ -131,7 +134,7 @@ class Visit:
             return False
 
     def NUVexists(self, path=None):
-        if os.path.isfile(f"{self.nuv_path}{self.fuv_filename}"):
+        if os.path.isfile(f"{self.nuv_path}{self.nuv_filename}"):
             return True
         else:
             return False
@@ -154,7 +157,7 @@ class Visit:
             if self.timereset == False:
                 self.reset_time()
             for i in range(len(alldata_fuv['t_mean'])):
-                jd = calculate_jd(alldata_fuv['t_mean'][i])
+                jd = WDutils.calculate_jd(alldata_fuv['t_mean'][i])
                 alldata_fuv.loc[i, 't_mean'] = jd
             if scale == 1:
                 fuv_relativetup = WDutils.relativescales_1(alldata_fuv)
@@ -199,7 +202,7 @@ class Visit:
             if self.timereset == False:
                 self.reset_time()
             for i in range(len(alldata_nuv['t_mean'])):
-                jd = calculate_jd(alldata_nuv['t_mean'][i])
+                jd = WDutils.calculate_jd(alldata_nuv['t_mean'][i])
                 alldata_nuv.loc[i, 't_mean'] = jd
             if scale == 1:
                 nuv_relativetup = WDutils.relativescales_1(alldata_nuv)
@@ -321,11 +324,13 @@ class Visit:
 
         # Periodogram Metric
         time_seconds = self.df['t_mean'] * 60
-        ls = LombScargle(time_seconds, self.flux_injected)
+        #ls = LombScargle(time_seconds, self.flux_injected)
+        ls = LombScargle(self.df['t_mean'], self.flux_injected)
         freq, amp = ls.autopower(nyquist_factor=1)
 
         detrad = self.df['detrad']
-        ls_detrad = LombScargle(time_seconds, detrad)
+        #ls_detrad = LombScargle(time_seconds, detrad)
+        ls_detrad = LombScargle(self.df['t_mean'], detrad)
         freq_detrad, amp_detrad = ls_detrad.autopower(nyquist_factor=1)
         pgram_tup = WDranker_2.find_cPGRAM(ls, amp_detrad,
                                            exposure=self.exposure)
@@ -365,11 +370,8 @@ class Visit:
              + (w_magfit * c_magfit)
              + (w_WS * c_ws))
 
-        # cutoff = FindCutoff(95)
-        cutoff = .638  # Don't waste time loading in alldata
-        # print("Rank --- ", C, "Cutoff --- ", cutoff)
 
-        if C > cutoff:
+        if C > self.cutoff:
             return 1
         else:
             return 0
@@ -402,6 +404,110 @@ class Visit:
         else:
             return False
 
+    def rank(self):
+        if self.good_df():
+            #Already have c_exposure
+            coloredtup = WDutils.ColoredPoints(self.df)
+            redpoints = coloredtup.redpoints
+            bluepoints = coloredtup.bluepoints
+            droppoints = np.unique(np.concatenate([redpoints, bluepoints]))
+
+            relativetup = WDutils.relativescales(self.df)
+            t_mean = relativetup.t_mean
+            flux_bgsub = relativetup.flux
+            flux_bgsub_err = relativetup.err
+
+            if len(redpoints) != 0:
+                t_mean_red = [ t_mean[ii] for ii in redpoints]
+                flux_bgsub_red = [ flux_bgsub[ii] for ii in redpoints]
+                flux_bgsub_err_red = [ flux_bgsub_err[ii] for ii in redpoints]
+            if len(bluepoints) != 0:
+                t_mean_blue = [ t_mean[ii] for ii in bluepoints ]
+                flux_bgsub_blue = [ flux_bgsub[ii] for ii in bluepoints ]
+                flux_bgsub_err_blue = [ flux_bgsub_err[ii] for ii in bluepoints ]
+
+            df_reduced = self.df.drop(index=droppoints)
+            df_reduced = df_reduced.reset_index(drop=True)
+
+            df_reduced = WDutils.df_firstlast(df_reduced)
+
+            relativetup_reduced = WDutils.relativescales(df_reduced)
+            t_mean = relativetup_reduced.t_mean
+            flux_bgsub = relativetup_reduced.flux
+            flux_bgsub_err = relativetup_reduced.err
+
+
+            if self.FUVexists():
+                exists = True
+                fuv_tup = self.FUVmatch()
+                t_mean_fuv = fuv_tup.t_mean
+                flux_fuv = fuv_tup.flux
+                flux_err_fuv = fuv_tup.err
+            else:
+                exists = False
+
+            # Periodogram Metric
+            time_seconds = df_reduced['t_mean'] * 60
+            ls = LombScargle(t_mean, flux_bgsub)
+            freq, amp = ls.autopower(nyquist_factor=1)
+
+            detrad = df_reduced['detrad']
+            ls_detrad = LombScargle(t_mean, detrad)
+            freq_detrad, amp_detrad = ls_detrad.autopower(nyquist_factor=1)
+            pgram_tup = WDranker_2.find_cPGRAM(ls, amp_detrad,
+                                               exposure=self.exposure)
+            # Return 0,1 rseult of recovery
+            c_periodogram = pgram_tup.c
+            ditherperiod_exists = pgram_tup.ditherperiod_exists
+
+            # Welch Stetson Metric
+            if exists:
+                c_ws = WDranker_2.find_cWS(t_mean, t_mean_fuv,
+                                           flux_bgsub, flux_fuv,
+                                           flux_bgsub_err, flux_err_fuv,
+                                           ditherperiod_exists, 
+                                           self.FUVexists())
+            else:
+                c_ws = WDranker_2.find_cWS(t_mean, None,
+                                           flux_bgsub, None,
+                                           flux_bgsub_err, None,
+                                           ditherperiod_exists, 
+                                           self.FUVexists())
+
+            # RMS Metric --- have to 'unscale' the magnitudes
+            df_sigma_mag = median_absolute_deviation(df_reduced['mag_bgsub'])
+            c_magfit = WDranker_2.find_cRMS(self.mag, df_sigma_mag, 'NUV')
+
+            # Weights:
+            w_pgram = 1
+            w_expt = .2
+            w_WS = .3
+            w_magfit = .25
+
+            C = ((w_pgram * c_periodogram)
+                 + (w_expt * self.c_exposure)
+                 + (w_magfit * c_magfit)
+                 + (w_WS * c_ws))
+        
+        else:
+            C=0
+
+        self.C = C
+        #print(self.C)
+
+    def high_rank(self):
+        try:
+            if self.C > self.cutoff:
+                return True
+            else:
+                return False
+        except:
+            self.rank()
+            if self.C > self.cutoff:
+                return True
+            else:
+                return False
+            
     # Perform a sine least squares fit
     def lsfit(self, iterations=100, plot=False):
         print(f"Fitting {self.filename}")
@@ -430,29 +536,38 @@ class Visit:
         period_guess = (1 / freq_max) * 60
 
         # Reduction for other band
-        other_band_exists = False
         if self.band == 'NUV':
-            fuvtup = self.FUVmatch()
-            if fuvtup is not None:
-                time_seconds_other = np.array(fuvtup.t_mean) * 60
-                flux_bgsub_other = fuvtup.flux
-                flux_bgsub_err_other = fuvtup.err
-                other_band_exists = True
+            if self.FUVexists():
+                othertup = self.FUVmatch(scale=100)
+            else:
+                othertup = None
         else:
-            nuvtup = self.NUVmatch()
-            if nuvtup is not None:
-                time_seconds_other = np.array(nuvtup.t_mean) * 60
-                flux_bgsub_other = nuvtup.flux
-                flux_bgsub_err_other = nuvtup.err
+            if self.NUVexists():
+                othertup = self.NUVmatch(scale=100)
+            else:
+                othertup = None
+        if othertup is not None:
+            if len(othertup.t_mean) > 15:
+                flux_bgsub_other = othertup.flux
+                flux_bgsub_err_other = othertup.err
+                time_seconds_other = np.array(othertup.t_mean) * 60
                 other_band_exists = True
+            else:
+                other_band_exists = False
+        else:
+            other_band_exists = False
 
         # Guess parameters, same between bands except for amplitude
         guess_mean = np.mean(flux_bgsub)
         guess_phase = 0
         guess_freq = (2*np.pi)/period_guess
         guess_amp = np.max(flux_bgsub)
-        guess_amp_other = np.max(flux_bgsub_other)
+        if other_band_exists:
+            guess_amp_other = np.max(flux_bgsub_other)
 
+        lower_bounds = np.array([0, guess_freq - (1/800), -np.inf, -50])
+        upper_bounds = np.array([np.inf, guess_freq + (1/800), np.inf, 50])
+        bounds = (lower_bounds, upper_bounds)
         # Fitting for main band
         data_guess = (guess_amp * 
                 np.sin(time_seconds*guess_freq+guess_phase)+guess_mean)
@@ -468,17 +583,17 @@ class Visit:
 
             optimize_func= lambda x: x[0]*np.sin(
                     x[1]*time_seconds+x[2]) + x[3] - bs_flux
-            est_amp, est_freq, est_phase, est_mean = leastsq(
-                    optimize_func, 
-                    [guess_amp, guess_freq, guess_phase, guess_mean])[0]
+            
+            out = least_squares(optimize_func, 
+                    [guess_amp, guess_freq, guess_phase, guess_mean],
+                    bounds=bounds)
+            est_amp, est_freq, est_phase, est_mean = out.x
+
             amp_list.append(est_amp)
             p_list.append((2*np.pi)/est_freq)
 
         # Identical fitting process for other band
         if other_band_exists:
-            data_guess_other = (guess_amp_other * 
-                    np.sin(time_seconds_other*guess_freq+guess_phase)
-                    +guess_mean)
             amp_list_other = []
             p_list_other = []
             pbar2 = ProgressBar()
@@ -491,13 +606,14 @@ class Visit:
 
                 optimize_func= lambda x: x[0]*np.sin(
                         x[1]*time_seconds_other+x[2]) + x[3] - bs_flux_other
-                est_amp, est_freq, est_phase, est_mean = leastsq(
-                        optimize_func, 
-                        [guess_amp_other, guess_freq, 
-                            guess_phase, guess_mean])[0]
-                amp_list_other.append(est_amp)
-                p_list_other.append((2*np.pi)/est_freq)
 
+                out_other = least_squares(optimize_func, 
+                        [guess_amp_other, guess_freq, 
+                            guess_phase, guess_mean], 
+                        bounds=bounds)
+                est_amp_other, est_freq_other, est_phase_other, est_mean_other = out_other.x
+                amp_list_other.append(est_amp_other)
+                p_list_other.append((2*np.pi)/est_freq_other)
 
         # Plotting option
         if plot:
@@ -513,12 +629,30 @@ class Visit:
                     yerr=flux_bgsub_err, color=colors[self.band], alpha=.75, 
                     marker='.', ls='', ms=10)
             [bar.set_alpha(.25) for bar in bars]
+            
+            if other_band_exists:
+                ax2 = ax.twinx()
+                ax2.minorticks_on()
+                ax2.tick_params(direction='in', which='both', labelsize=15)
+                markers2, caps2, bars2 = ax2.errorbar(
+                        time_seconds_other, flux_bgsub_other, 
+                        yerr=flux_bgsub_err_other, 
+                        color=colors[self.otherband], 
+                        alpha=.5, marker='.', ls='', ms=8)
+                [bar.set_alpha(.25) for bar in bars2]
+
+                ax2.tick_params(axis='y', colors=colors[self.otherband], 
+                                which='both')
+
+                for axis in ['top', 'bottom', 'left', 'right']:
+                    ax2.spines[axis].set_linewidth(1.5)
 
             ax = WDutils.plotparams(ax)
 
             ax.plot(time_seconds, data_guess, label='first guess')
             ax.plot(fine_t, data_fit, label='after fitting')
             ax.legend()
+            plt.show()
 
             fig.savefig(f"{self.filename}-fit.pdf")
 
@@ -530,26 +664,26 @@ class Visit:
             if (other_band_exists and 
                     (abs(np.mean(p_list)-np.mean(p_list_other)) < 150)):
                 tup = OutputTup(np.mean(p_list), np.std(p_list),
-                                np.mean(amp_list), np.std(amp_list),
+                                abs(np.mean(amp_list)), np.std(amp_list),
                                 np.mean(p_list_other), np.std(p_list_other),
-                                np.mean(amp_list_other), 
+                                abs(np.mean(amp_list_other)), 
                                 np.std(amp_list_other))
             else:
                 tup = OutputTup(np.mean(p_list), np.std(p_list),
-                                np.mean(amp_list), np.std(amp_list),
+                                abs(np.mean(amp_list)), np.std(amp_list),
                                 None, None, None, None)
         else:
             if (other_band_exists and 
                     (abs(np.mean(p_list)-np.mean(p_list_other)) < 150)):
                 tup = OutputTup(np.mean(p_list_other), np.std(p_list_other),
-                                np.mean(amp_list_other), 
+                                abs(np.mean(amp_list_other)), 
                                 np.std(amp_list_other),
                                 np.mean(p_list), np.std(p_list),
-                                np.mean(amp_list), np.std(amp_list))
+                                abs(np.mean(amp_list)), np.std(amp_list))
             else:
                 tup = OutputTup(None, None, None, None,
                                 np.mean(p_list), np.std(p_list),
-                                np.mean(amp_list), np.mean(amp_list))
+                                abs(np.mean(amp_list)), np.mean(amp_list))
         return tup
 
 
