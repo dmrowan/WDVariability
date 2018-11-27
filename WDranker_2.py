@@ -436,6 +436,7 @@ def main(csvname,
             df_number +=1
             continue
 
+
         #Drop bad first and last points
         df_reduced = WDutils.df_firstlast(df_reduced)
 
@@ -519,6 +520,7 @@ def main(csvname,
         autocorr_result = selfcorrelation(flux_bgsub)
 
         #####GENERATE RATING#####
+        print(c_periodogram, c_exposure, c_magfit, c_ws)
         C = ((w_pgram * c_periodogram) 
             + (w_expt * c_exposure) 
             + (w_magfit * c_magfit) 
@@ -895,22 +897,17 @@ def main(csvname,
         Has Disk:            \n
         Strongest Period:    \n
         """
-        information2 = """
-        {0} \n
-        {1} \n
-        {2} \n
-        {3} \n
-        {4} \n
-        {5} \n
-        {6} 
-        {7} \n
-        {8} \n
-        {9} \n
-        {10} \n
-        """.format(source, band, str(round(m_ab,4)), str(round(gmag, 4)), 
-                   spectype, simbad_name, simbad_types, variability, 
-                   binarity, hasdisk, period_to_save
-            )
+        information2 = (f"{source} \n"
+                        f"{band} \n"
+                        f"{round(m_ab, 4)} \n"
+                        f"{round(gmag, 4)} \n"
+                        f"{spectype} \n"
+                        f"{simbad_name} \n"
+                        f"{simbad_types}"
+                        f"{variability} \n"
+                        f"{binarity} \n"
+                        f"{hasdisk} \n"
+                        f"{period_to_save} \n")
         axall2[1].text(.2, 1, information1, size=15, ha='left', va='top')
         axall2[1].text(.7, 1, information2, size=15, ha='right', va='top')
         axall2[1].axis('off')
