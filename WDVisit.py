@@ -19,7 +19,7 @@ from WD_Recovery import selectOptical
 
 # Define a class for a galex visit df
 class Visit:
-    def __init__(self, df, filename, mag=None):
+    def __init__(self, df, filename, mag=None, alldata_ranks='AllData.csv'):
         # Argument assertions
         if type(df) != pd.core.frame.DataFrame:
             raise TypeError("df must be a pandas DataFrame")
@@ -34,6 +34,10 @@ class Visit:
         self.df = self.df.reset_index(drop=True)
         self.filename = filename
         self.mag = mag
+        if os.path.isfile(alldata_ranks):
+            self.alldata_ranks = pd.read_csv(alldata_ranks)
+        else:
+            self.alldata_ranks = None
         # Determine band
         if 'FUV' in self.filename:
             self.band = 'FUV'
@@ -57,8 +61,7 @@ class Visit:
         self.nuv_path = ""
 
         # cutoff = FindCutoff(95)
-        self.cutoff = .638  # Don't waste time loading in alldata
-        # print("Rank --- ", C, "Cutoff --- ", cutoff)
+        self.cutoff = .638  
 
     # Calculate exposure using c_EXP metric
     def cEXP(self):
@@ -404,9 +407,44 @@ class Visit:
         else:
             return False
 
+    # Check rank of visit before injection
+    def new_high_rank(self):
+        if self.alldata_ranks is not None:
+            idx_alldata = np.where(self.alldata_ranks['BestRank'] >= self.cutoff)[0][-1]
+            sourcename = self.filename[:-8]
+            allcondition1 = self.alldata_ranks['SourceName'] == sourcename
+            allcondition2 = self.alldata_ranks['Band'] == 'NUV'
+            allcondition = allcondition1 & allcondition2
+            idx_alldata_source = np.where(allcondition)[0]
+
+            if len(idx_alldata_source) == 0:
+                self.rank()
+                if self.C > self.cutoff:
+                    return True
+                else:
+                    return False
+            else:
+                idx_alldata_source = idx_alldata_source[0]
+
+            if idx_alldata_source <= idx_alldata:
+                self.rank()
+                if self.C > self.cutoff:
+                    return True
+                else:
+                    return False
+            else:
+                return False
+        else:
+            self.rank()
+            if self.C > self.cutoff:
+                return True
+            else:
+                return False
+
     def rank(self):
+        #If it is not a good_df rank is 0
         if self.good_df():
-            #Already have c_exposure
+            # Standard data reduction procedure
             coloredtup = WDutils.ColoredPoints(self.df)
             redpoints = coloredtup.redpoints
             bluepoints = coloredtup.bluepoints
@@ -417,6 +455,7 @@ class Visit:
             flux_bgsub = relativetup.flux
             flux_bgsub_err = relativetup.err
 
+            # Store red and blue poitns
             if len(redpoints) != 0:
                 t_mean_red = [ t_mean[ii] for ii in redpoints]
                 flux_bgsub_red = [ flux_bgsub[ii] for ii in redpoints]
@@ -437,6 +476,7 @@ class Visit:
             flux_bgsub_err = relativetup_reduced.err
 
 
+            # Do FUV matching
             if self.FUVexists():
                 exists = True
                 fuv_tup = self.FUVmatch()
@@ -445,6 +485,8 @@ class Visit:
                 flux_err_fuv = fuv_tup.err
             else:
                 exists = False
+
+            # Exposure metric already calcualted in init
 
             # Periodogram Metric
             time_seconds = df_reduced['t_mean'] * 60
@@ -484,6 +526,7 @@ class Visit:
             w_WS = .3
             w_magfit = .25
 
+            # Calcualte and store rank
             C = ((w_pgram * c_periodogram)
                  + (w_expt * self.c_exposure)
                  + (w_magfit * c_magfit)
@@ -495,6 +538,7 @@ class Visit:
         self.C = C
         #print(self.C)
 
+    # Boolean check if rank is above cutoff
     def high_rank(self):
         try:
             if self.C > self.cutoff:
@@ -507,7 +551,7 @@ class Visit:
                 return True
             else:
                 return False
-            
+
     # Perform a sine least squares fit
     def lsfit(self, iterations=100, plot=False):
         print(f"Fitting {self.filename}")
