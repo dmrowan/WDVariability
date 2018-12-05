@@ -174,7 +174,7 @@ def selectLC(binvalue, binsize, mag_array, path_array):
         visit = WDVisit.Visit(df, filename, source_mag)
         if visit.good_df() == True: 
             if visit.existingperiods() == False:
-                if visit.high_rank() == False:
+                if visit.new_high_rank() == False:
                     visit_list.append(visit)
 
     #If there were no good visits, pick a new source
@@ -188,6 +188,33 @@ def selectLC(binvalue, binsize, mag_array, path_array):
         visit = random.choice(visit_list)
         visit_i = np.where(np.array(visit_list) == visit)[0]
         return visit, source_mag, filename, visit_i
+
+def gen_visitlist(mag_array, path_array):
+    visit_array = np.zeros(len(path_array))
+    for i in range(len(path_array)):
+        filename = path_array[i]
+        assert(os.path.isfile(filename))
+        usecols = ['t0', 't1', 't_mean',
+                   'mag_bgsub',
+                   'cps_bgsub', 'cps_bgsub_err', 'counts',
+                   'flux_bgsub', 'flux_bgsub_err',
+                   'detrad', 'flags', 'exptime']
+        alldata = pd.read_csv(filename, usecols=usecols)
+        #Data reduction and time correction
+        alldata = WDutils.df_reduce(alldata)
+        alldata = WDutils.tmean_correction(alldata)
+        #Split into visits 
+        data = WDutils.dfsplit(alldata, 100)
+        source_mag = round(np.nanmedian(alldata['mag_bgsub']),5)
+        #Pull good visits
+        visit_list = []
+        for df in data:
+            visit = WDVisit.Visit(df, filename, source_mag)
+            if visit.good_df() == True: 
+                if visit.existingperiods() == False:
+                    if visit.new_high_rank() == False:
+                        visit_list.append(visit)
+        visit_array[i].append(visit_list)
 
 
 #Select random observation and time chunk
@@ -245,6 +272,7 @@ def main(mag, bs, mag_array, path_array, opticalLC, fname, verbose):
 def wrapper(mag_array, path_array, opticalLC, 
             iterations, ml, mu, bs, p, fname, verbose):
     #Set up magnitude bins
+    time_start = time.time()
     minbin=ml
     maxbin=mu
     bins = np.arange(minbin, maxbin+bs, bs)
@@ -261,6 +289,11 @@ def wrapper(mag_array, path_array, opticalLC,
             jobs.append(job)
     for job in jobs:
         job.get()
+
+    time_end = time.time()
+    time_str = f"{time_end - time_start}"
+    if fname is not None:
+        os.system("echo {0} >> {1}".format(time_str, fname))
 
 #Iterate through all visits of a source
 def testfunction(filename, output):
@@ -481,11 +514,14 @@ def RecoveryPlot(resultarray):
     ax0 = WDutils.plotparams(ax0)
     ax0.xaxis.get_major_ticks()[0].set_visible(False)
     ax0.set_xlim(xmin=15, xmax=21)
+    ax0.set_yticks([.5, 1, 1.5, 2])
+    ax0.yaxis.set_minor_locator(MultipleLocator(.1))
+
 
     divider = make_axes_locatable(ax0)
     cax = divider.append_axes("right", size="5%", pad=.1)
     cb = plt.colorbar(im, cax=cax)
-    cb.ax.set_ylabel('Percent Recovered', fontsize=25)
+    cb.ax.set_ylabel('Recovery Rate (%)', fontsize=25)
     plt.subplots_adjust(bottom=.175, top=.98)
     fig.savefig('RecoveryPlot.pdf')
 
@@ -696,7 +732,7 @@ def SlicePlot(resultarray, mag_array):
     #z_values = [3, 2, 1]
     z_values = [1, .5, 0]
     colors = ['#4400F4', '#0000FF', '#7E00D8', '#A000BC', '#CF007E', '#FF0000']
-    slicecolors = [colors[1], colors[2], colors[4]]
+    slicecolors = ["#8229b8", "#33bb00", "#0069ef", "#ff4319"][::-1]
     #Create three separate bar graphs
     for i in range(len(mf_values)):
         idx = np.where(mfbins == mf_values[i])[0]
@@ -709,7 +745,7 @@ def SlicePlot(resultarray, mag_array):
                color=slicecolors[i])
 
     
-    ax2.hist(mag_array, bins=magbins, color=colors[2], 
+    ax2.hist(mag_array, bins=magbins, color=slicecolors[3],
              linewidth=1.2, edgecolor='black', zorder=1)
 
     fig.text(.5, .05, r'$GALEX$ NUV (mag)', fontsize=20,
@@ -836,7 +872,7 @@ def DetectableTransits(opticalLC, threshold):
 
 #Find sources for comparision plot easily
 def SourceSearch(desiredmag, mf, desired_result, mag_array, path_array, 
-                 opticalLC, center=185, mrange=1):
+                 opticalLC, center=55, mrange=1):
     lowermag = desiredmag - mrange
     uppermag = desiredmag + mrange
     mag_range = [ round(b, 1) for b in np.arange(
