@@ -410,7 +410,8 @@ class Visit:
     # Check rank of visit before injection
     def new_high_rank(self):
         if self.alldata_ranks is not None:
-            idx_alldata = np.where(self.alldata_ranks['BestRank'] >= self.cutoff)[0][-1]
+            #idx_alldata = np.where(self.alldata_ranks['BestRank'] >= self.cutoff)[0][-1]
+            idx_alldata = 2355
             sourcename = self.filename[:-8]
             allcondition1 = self.alldata_ranks['SourceName'] == sourcename
             allcondition2 = self.alldata_ranks['Band'] == 'NUV'
